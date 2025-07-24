@@ -54,7 +54,7 @@ def inbox_mailtm(address, token):
                 msg_id = m["id"]
                 detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
                 msg = detail_resp.json()
-                with st.expander("✉️ {msg.get('from',{}).get('address')} | {}"):
+                with st.expander(f"✉️ {msg.get('from', {}).get('address', 'N/A')} | {msg.get('subject', '(Senza oggetto)')}"):
                     st.markdown("**Oggetto:** {}")
                     st.markdown(f"**Mittente:** {msg.get('from',{}).get('address', 'N/A')}")
                     st.markdown("**Data:** {}")

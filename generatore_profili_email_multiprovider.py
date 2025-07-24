@@ -7,7 +7,7 @@ import streamlit as st
 from faker import Faker
 import xml.etree.ElementTree as ET
 
-st.set_page_config(page_title="Fake Profile Generator (mail.tm full inbox)", page_icon="📨", layout="centered")
+st.set_page_config(page_title="Fake Profile Generator (mail.tm full + copy email)", page_icon="📨", layout="centered")
 
 PREDEFINED_IBANS = {
     'IT': ['IT60X0542811101000000123456', 'IT12A0306912345100000067890'],
@@ -39,7 +39,14 @@ def create_mailtm_account(domain):
         return None
 
 def inbox_mailtm(address, token):
-    st.subheader(f"📬 Inbox per {address}")
+    st.subheader(f"📬 Inbox per [{address}](mailto:{address})")
+
+    # Copy-to-clipboard HTML button (safe)
+    st.markdown(f'''
+        <input type="text" value="{address}" id="copyEmail" style="position:absolute; left:-1000px;">
+        <button onclick="navigator.clipboard.writeText(document.getElementById('copyEmail').value)">Copia indirizzo email</button>
+        ''', unsafe_allow_html=True)
+
     if st.button("🔁 Controlla inbox (mail.tm)"):
         headers = {'Authorization': f'Bearer {token}'}
         try:
@@ -56,16 +63,16 @@ def inbox_mailtm(address, token):
                     st.markdown(f"**Mittente:** {msg.get('from',{}).get('address', 'N/A')}")
                     st.markdown(f"**Data:** {msg.get('createdAt', '')}")
                     st.markdown("---")
-                    if msg.get("html"):
+                    html_content = msg.get("html")
+                    if html_content and isinstance(html_content, str):
                         st.markdown("**Contenuto (HTML):**", unsafe_allow_html=True)
-                        st.components.v1.html(msg["html"], height=300, scrolling=True)
+                        st.components.v1.html(html_content, height=300, scrolling=True)
                     elif msg.get("text"):
                         st.markdown("**Contenuto (Testo):**")
                         st.code(msg["text"])
                     else:
                         st.markdown("**Anteprima:**")
                         st.code(msg.get("intro", "Nessun contenuto."))
-                    # Allegati
                     if msg.get("attachments"):
                         st.markdown("**📎 Allegati:**")
                         for att in msg["attachments"]:
@@ -108,7 +115,7 @@ def generate_profile(country, extra_fields, selected_domain):
 
 # ---------------- UI ---------------- #
 
-st.title("📨 Generatore di Profili Fake con mail.tm (Contenuto completo messaggi)")
+st.title("📨 Generatore di Profili Fake (mail.tm - HTML completo + copia email)")
 
 if 'final_df' not in st.session_state: st.session_state.final_df = None
 if 'email_info' not in st.session_state: st.session_state.email_info = None

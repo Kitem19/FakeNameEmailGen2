@@ -5,7 +5,7 @@ import requests
 import pandas as pd
 import streamlit as st
 from faker import Faker
-import xml.etree.ElementTree as ET
+# Non serve più xml.etree.ElementTree
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Generatore Profili Fake", page_icon="📨", layout="centered")
@@ -17,16 +17,21 @@ PREDEFINED_IBANS = {
     'DE': ['DE89370400440532013000', 'DE02100100100006820101'],
     'LU': ['LU280019400644750000', 'LU120010001234567891']
 }
+# Header standard per tutte le richieste API
+API_HEADERS = {'Accept': 'application/json', 'Content-Type': 'application/json'}
+
 
 # --- FUNZIONI API per mail.tm ---
 
-@st.cache_data(ttl=3600) # Cache dei domini per 1 ora per non chiamare l'API ogni volta
+@st.cache_data(ttl=3600) # Cache dei domini per 1 ora
 def get_mailtm_domains():
-    """Ottiene i domini disponibili da mail.tm."""
+    """Ottiene i domini disponibili da mail.tm in formato JSON."""
     try:
-        r = requests.get("https://api.mail.tm/domains", headers={'Accept': 'application/json'})
+        # --- FIX DEFINITIVO: Chiediamo esplicitamente JSON ---
+        r = requests.get("https://api.mail.tm/domains", headers=API_HEADERS)
         r.raise_for_status()
-        return [domain['domain'] for domain in r.json().get("hydra:member", []) if domain['isActive']]
+        # Ora r.json() funzionerà perché la risposta è JSON
+        return [domain['domain'] for domain in r.json().get("hydra:member", []) if domain.get('isActive')]
     except requests.exceptions.RequestException as e:
         st.error(f"Impossibile recuperare i domini da mail.tm: {e}")
         return []
@@ -35,33 +40,30 @@ def create_mailtm_account(domain):
     """Crea un account email e ottiene il token."""
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=12))
     password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-    
-    # --- FIX 2: Corretta la formattazione dell'indirizzo ---
     address = f"{username}@{domain}"
-    
     data = {"address": address, "password": password}
+
     try:
-        # Crea l'account
-        requests.post("https://api.mail.tm/accounts", json=data).raise_for_status()
-        
-        # Ottieni il token
-        token_resp = requests.post("https://api.mail.tm/token", json=data)
+        # Standardizziamo gli header anche qui
+        requests.post("https://api.mail.tm/accounts", json=data, headers=API_HEADERS).raise_for_status()
+        token_resp = requests.post("https://api.mail.tm/token", json=data, headers=API_HEADERS)
         token_resp.raise_for_status()
-        
         return {"address": address, "token": token_resp.json()['token']}
     except requests.exceptions.RequestException as e:
         st.error(f"Errore nella creazione dell'account mail.tm: {e}")
+        if e.response:
+            st.warning(f"Dettagli errore API: {e.response.text}")
         return None
 
 def inbox_mailtm(address, token):
     """Mostra l'interfaccia per controllare la casella di posta."""
-    # --- FIX 1: Rimosso l'inutile e errato st.markdown che avvolgeva tutto ---
     st.subheader(f"📬 Inbox per [{address}](mailto:{address})")
 
     if st.button("🔁 Controlla inbox (mail.tm)"):
-        headers = {'Authorization': f'Bearer {token}'}
+        # Combiniamo gli header standard con il token di autorizzazione
+        auth_headers = {**API_HEADERS, 'Authorization': f'Bearer {token}'}
         try:
-            r = requests.get("https://api.mail.tm/messages", headers=headers)
+            r = requests.get("https://api.mail.tm/messages", headers=auth_headers)
             r.raise_for_status()
             messages = r.json().get("hydra:member", [])
             
@@ -70,10 +72,10 @@ def inbox_mailtm(address, token):
                 return
 
             st.success(f"Trovati {len(messages)} messaggi.")
-            for m in reversed(messages): # Mostra i più recenti per primi
+            for m in reversed(messages):
                 msg_id = m["id"]
                 with st.spinner(f"Caricamento messaggio {msg_id}..."):
-                    detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
+                    detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=auth_headers)
                     detail_resp.raise_for_status()
                     msg = detail_resp.json()
 
@@ -81,12 +83,11 @@ def inbox_mailtm(address, token):
                     st.code(f"A: {', '.join([to['address'] for to in msg.get('to', [])])}\nData: {pd.to_datetime(msg.get('createdAt')).strftime('%d/%m/%Y %H:%M')}", language=None)
                     st.markdown("---")
                     
-                    html_content = msg.get("html")
-                    if html_content and isinstance(html_content, list):
-                        # Prendi il primo contenuto HTML se è una lista
-                        st.components.v1.html(html_content[0], height=400, scrolling=True)
+                    html_content_list = msg.get("html", [])
+                    if html_content_list:
+                        st.components.v1.html(html_content_list[0], height=400, scrolling=True)
                     elif msg.get("text"):
-                        st.text_area("Contenuto (Testo)", msg["text"], height=250)
+                        st.text_area("Contenuto (Testo)", msg["text"], height=250, key=f"text_{msg_id}")
                     else:
                         st.code(msg.get("intro", "Nessun contenuto disponibile."))
                         

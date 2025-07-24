@@ -5,7 +5,6 @@ import requests
 import pandas as pd
 import streamlit as st
 from faker import Faker
-import json # Importiamo la libreria json per gestire gli errori di decodifica
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Generatore Profili Fake", page_icon="📨", layout="centered")
@@ -19,29 +18,12 @@ PREDEFINED_IBANS = {
 }
 API_HEADERS = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 
+# --- FIX DEFINITIVO: Lista di domini noti e funzionanti ---
+# Abbiamo rimosso la chiamata all'API /domains che era instabile.
+VALID_MAILTM_DOMAINS = ["mailbox.in.ua", "member.buzz"]
+
 
 # --- FUNZIONI API per mail.tm ---
-
-@st.cache_data(ttl=3600)
-def get_mailtm_domains():
-    """Ottiene i domini disponibili da mail.tm in modo robusto."""
-    try:
-        r = requests.get("https://api.mail.tm/domains", headers=API_HEADERS)
-        r.raise_for_status()
-        
-        # --- FIX A PROVA DI PROIETTILE ---
-        # Verifichiamo che la risposta sia effettivamente JSON prima di processarla.
-        try:
-            data = r.json()
-            return [domain['domain'] for domain in data.get("hydra:member", []) if domain.get('isActive')]
-        except json.JSONDecodeError:
-            st.error("L'API ha risposto, ma non in formato JSON. Ecco la risposta grezza:")
-            st.code(r.text)
-            return []
-            
-    except requests.exceptions.RequestException as e:
-        st.error(f"Impossibile recuperare i domini da mail.tm: {e}")
-        return []
 
 def create_mailtm_account(domain):
     """Crea un account email e ottiene il token."""
@@ -51,13 +33,18 @@ def create_mailtm_account(domain):
     data = {"address": address, "password": password}
 
     try:
+        # Crea l'account
         requests.post("https://api.mail.tm/accounts", json=data, headers=API_HEADERS).raise_for_status()
+        
+        # Ottieni il token
         token_resp = requests.post("https://api.mail.tm/token", json=data, headers=API_HEADERS)
         token_resp.raise_for_status()
+        
         return {"address": address, "token": token_resp.json()['token']}
     except requests.exceptions.RequestException as e:
         st.error(f"Errore nella creazione dell'account mail.tm: {e}")
-        if e.response: st.warning(f"Dettagli errore API: {e.response.text}")
+        if e.response:
+            st.warning(f"Dettagli errore API: {e.response.text}")
         return None
 
 def inbox_mailtm(address, token):
@@ -84,8 +71,10 @@ def inbox_mailtm(address, token):
                 with st.expander(f"✉️ **Da:** {msg.get('from', {}).get('address', 'N/A')} | **Oggetto:** {msg.get('subject', '(Senza oggetto)')}"):
                     st.code(f"A: {', '.join([to['address'] for to in msg.get('to', [])])}\nData: {pd.to_datetime(msg.get('createdAt')).strftime('%d/%m/%Y %H:%M')}", language=None)
                     html_content_list = msg.get("html", [])
-                    if html_content_list: st.components.v1.html(html_content_list[0], height=400, scrolling=True)
-                    elif msg.get("text"): st.text_area("Contenuto (Testo)", msg["text"], height=250, key=f"text_{msg_id}")
+                    if html_content_list and isinstance(html_content_list, list):
+                        st.components.v1.html(html_content_list[0], height=400, scrolling=True)
+                    elif msg.get("text"):
+                        st.text_area("Contenuto (Testo)", msg["text"], height=250, key=f"text_{msg_id}")
                     if msg.get("attachments"):
                         st.markdown("**📎 Allegati:**")
                         for att in msg["attachments"]: st.markdown(f"- [{att.get('filename')}]({att.get('downloadUrl')})")
@@ -128,14 +117,13 @@ with st.sidebar:
     n = st.number_input("Numero di profili", 1, 25, 1)
     fields = st.multiselect("Campi aggiuntivi", ["Email", "Telefono", "Codice Fiscale", "Partita IVA"], default=["Email"])
 
-    all_domains = get_mailtm_domains()
-    is_domain_selector_disabled = not all_domains
-    selected_domain = st.selectbox("Dominio per l'email", all_domains, disabled=is_domain_selector_disabled)
+    # Usa la nostra lista di domini sicura invece di chiamare l'API
+    selected_domain = st.selectbox("Dominio per l'email", VALID_MAILTM_DOMAINS)
 
-    if st.button("🚀 Genera Profili", type="primary", disabled=is_domain_selector_disabled):
+    if st.button("🚀 Genera Profili", type="primary"):
         with st.spinner("Generazione in corso..."):
             dfs = [generate_profile(country, fields, selected_domain) for _ in range(n)]
-        st.session_state.final_df = pd.concat(dfs, ignore_index=True)
+        st.session_state.final_df = pd.concat([df for df in dfs if not df.empty], ignore_index=True)
 
 if st.session_state.final_df is not None:
     st.success(f"✅ Generati {len(st.session_state.final_df)} profili.")

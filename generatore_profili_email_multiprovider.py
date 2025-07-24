@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import random
 import string
+import time
 import requests
 import pandas as pd
 import streamlit as st
@@ -36,24 +37,13 @@ def create_mailtm_account(domain):
         requests.post("https://api.mail.tm/accounts", json=data).raise_for_status()
         token_resp = requests.post("https://api.mail.tm/token", json=data)
         token_resp.raise_for_status()
-        return {"address": address, "token": token_resp.json()['token']}
+        return {"address": address, "token": token_resp.json()['token'], "username": username}
     except:
         return None
 
 def inbox_mailtm(address, token):
     st.subheader(f"📬 Inbox per {address}")
-    if st.button("🔄 Aggiorna mail.mail.tm"):
-        headers = {'Authorization': f'Bearer {token}'}
-        try:
-            r = requests.get("https://api.mail.tm/messages", headers=headers)
-            msgs = r.json().get("hydra:member", [])
-            if not msgs:
-                st.info("Nessun messaggio.")
-            for m in msgs:
-                with st.expander(f"{m.get('from',{}).get('address')} - {m.get('subject')}"):
-                    st.write(m.get('intro'))
-        except:
-            st.warning("⚠️ Impossibile leggere la casella mail.tm")
+    sleep_and_check("https://api.mail.tm/messages", {'Authorization': f'Bearer {token}'})
 
 # 1secmail
 def create_1secmail_account():
@@ -63,18 +53,8 @@ def create_1secmail_account():
 
 def inbox_1secmail(username, domain):
     st.subheader(f"📬 Inbox per {username}@{domain}")
-    if st.button("🔄 Aggiorna mail.1secmail.com"):
-        url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
-        r = requests.get(url)
-        try:
-            msgs = r.json()
-            if not msgs:
-                st.info("📭 Nessun messaggio trovato.")
-            for m in msgs:
-                with st.expander(f"{m['from']} - {m['subject']}"):
-                    st.write(f"ID: {m['id']} | Data: {m['date']}")
-        except:
-            st.warning("⚠️ Risposta non valida da 1secmail (forse vuota o HTML)")
+    url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
+    sleep_and_check(url)
 
 # GuerrillaMail
 def create_guerrillamail_account():
@@ -87,17 +67,8 @@ def create_guerrillamail_account():
 
 def inbox_guerrillamail(sid_token):
     st.subheader("📬 Inbox GuerrillaMail")
-    if st.button("🔄 Aggiorna mail.guerrillamail.com"):
-        try:
-            r = requests.get(f"https://api.guerrillamail.com/ajax.php?f=get_email_list&sid_token={sid_token}")
-            msgs = r.json().get("list", [])
-            if not msgs:
-                st.info("📭 Nessun messaggio trovato.")
-            for m in msgs:
-                with st.expander(f"{m['mail_from']} - {m['mail_subject']}"):
-                    st.write(m['mail_excerpt'])
-        except:
-            st.warning("⚠️ Impossibile accedere alla inbox GuerrillaMail.")
+    url = f"https://api.guerrillamail.com/ajax.php?f=get_email_list&sid_token={sid_token}"
+    sleep_and_check(url)
 
 # ---------------- UTILITY ---------------- #
 
@@ -127,21 +98,51 @@ def generate_profile(country, extra_fields, email_provider, selected_domain=None
     if 'Email' in extra_fields:
         if email_provider == "mail.tm":
             result = create_mailtm_account(selected_domain)
-            st.session_state.email_info = result
-            p["Email"] = result["address"] if result else "Errore"
         elif email_provider == "1secmail":
             result = create_1secmail_account()
-            st.session_state.email_info = result
-            p["Email"] = result["address"]
         elif email_provider == "GuerrillaMail":
             result = create_guerrillamail_account()
-            st.session_state.email_info = result
-            p["Email"] = result["address"] if result else "Errore"
+        else:
+            result = None
+
+        st.session_state.email_info = result
+        p["Email"] = result["address"] if result else "Errore"
 
     if 'Telefono' in extra_fields: p['Telefono'] = fake.phone_number()
     if 'Codice Fiscale' in extra_fields: p['Codice Fiscale'] = fake.ssn() if locale == 'it_IT' else 'N/A'
     if 'Partita IVA' in extra_fields: p['Partita IVA'] = fake.vat_id() if hasattr(fake, 'vat_id') else 'N/A'
     return pd.DataFrame([p])
+
+def sleep_and_check(url, headers=None):
+    if st.button("🔁 Aggiorna ogni 5s per 1 min"):
+        st.info("⏳ Attendi... controllo ogni 5 secondi per 60 secondi")
+        for i in range(12):
+            try:
+                r = requests.get(url, headers=headers)
+                try:
+                    data = r.json()
+                    if isinstance(data, dict) and "hydra:member" in data:
+                        messages = data["hydra:member"]
+                    elif isinstance(data, dict) and "list" in data:
+                        messages = data["list"]
+                    elif isinstance(data, list):
+                        messages = data
+                    else:
+                        messages = []
+
+                    if messages:
+                        st.success(f"📩 Trovati {len(messages)} messaggi!")
+                        for m in messages:
+                            with st.expander(str(m)):
+                                st.json(m)
+                        break
+                    else:
+                        st.write(f"[{(i+1)*5}s] Nessun messaggio...")
+                except Exception as e:
+                    st.warning(f"[{(i+1)*5}s] Risposta non valida o vuota.")
+            except Exception as e:
+                st.error(f"Errore: {e}")
+            time.sleep(5)
 
 # ---------------- UI ---------------- #
 
@@ -175,11 +176,21 @@ if st.session_state.final_df is not None:
     csv = st.session_state.final_df.to_csv(index=False).encode('utf-8')
     st.download_button("📥 Scarica CSV", csv, "profili.csv", "text/csv")
 
-    if 'Email' in st.session_state.final_df.columns:
-        info = st.session_state.email_info
-        if email_provider == "mail.tm" and info and "token" in info:
+    info = st.session_state.email_info
+    if 'Email' in st.session_state.final_df.columns and info:
+        if email_provider == "mail.tm" and "token" in info:
             inbox_mailtm(info["address"], info["token"])
-        elif email_provider == "1secmail" and info:
+        elif email_provider == "1secmail":
             inbox_1secmail(info["username"], info["domain"])
-        elif email_provider == "GuerrillaMail" and info:
+        elif email_provider == "GuerrillaMail":
             inbox_guerrillamail(info["sid_token"])
+
+# TEST EMAIL BUTTON
+st.markdown("---")
+st.subheader("📨 Test Email")
+if st.session_state.get("email_info"):
+    to_addr = st.session_state.email_info["address"]
+    if st.button("✉️ Inviami una test email"):
+        r = requests.post("https://httpbin.org/post", json={"to": to_addr, "subject": "Test", "body": "Messaggio di test"})
+        st.success(f"Test inviato a {to_addr} (simulazione)")
+        st.code(r.json(), language="json")

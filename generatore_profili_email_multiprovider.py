@@ -5,7 +5,7 @@ import requests
 import pandas as pd
 import streamlit as st
 from faker import Faker
-# Non serve più xml.etree.ElementTree
+import json # Importiamo la libreria json per gestire gli errori di decodifica
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Generatore Profili Fake", page_icon="📨", layout="centered")
@@ -17,21 +17,28 @@ PREDEFINED_IBANS = {
     'DE': ['DE89370400440532013000', 'DE02100100100006820101'],
     'LU': ['LU280019400644750000', 'LU120010001234567891']
 }
-# Header standard per tutte le richieste API
 API_HEADERS = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 
 
 # --- FUNZIONI API per mail.tm ---
 
-@st.cache_data(ttl=3600) # Cache dei domini per 1 ora
+@st.cache_data(ttl=3600)
 def get_mailtm_domains():
-    """Ottiene i domini disponibili da mail.tm in formato JSON."""
+    """Ottiene i domini disponibili da mail.tm in modo robusto."""
     try:
-        # --- FIX DEFINITIVO: Chiediamo esplicitamente JSON ---
         r = requests.get("https://api.mail.tm/domains", headers=API_HEADERS)
         r.raise_for_status()
-        # Ora r.json() funzionerà perché la risposta è JSON
-        return [domain['domain'] for domain in r.json().get("hydra:member", []) if domain.get('isActive')]
+        
+        # --- FIX A PROVA DI PROIETTILE ---
+        # Verifichiamo che la risposta sia effettivamente JSON prima di processarla.
+        try:
+            data = r.json()
+            return [domain['domain'] for domain in data.get("hydra:member", []) if domain.get('isActive')]
+        except json.JSONDecodeError:
+            st.error("L'API ha risposto, ma non in formato JSON. Ecco la risposta grezza:")
+            st.code(r.text)
+            return []
+            
     except requests.exceptions.RequestException as e:
         st.error(f"Impossibile recuperare i domini da mail.tm: {e}")
         return []
@@ -44,23 +51,19 @@ def create_mailtm_account(domain):
     data = {"address": address, "password": password}
 
     try:
-        # Standardizziamo gli header anche qui
         requests.post("https://api.mail.tm/accounts", json=data, headers=API_HEADERS).raise_for_status()
         token_resp = requests.post("https://api.mail.tm/token", json=data, headers=API_HEADERS)
         token_resp.raise_for_status()
         return {"address": address, "token": token_resp.json()['token']}
     except requests.exceptions.RequestException as e:
         st.error(f"Errore nella creazione dell'account mail.tm: {e}")
-        if e.response:
-            st.warning(f"Dettagli errore API: {e.response.text}")
+        if e.response: st.warning(f"Dettagli errore API: {e.response.text}")
         return None
 
 def inbox_mailtm(address, token):
     """Mostra l'interfaccia per controllare la casella di posta."""
     st.subheader(f"📬 Inbox per [{address}](mailto:{address})")
-
     if st.button("🔁 Controlla inbox (mail.tm)"):
-        # Combiniamo gli header standard con il token di autorizzazione
         auth_headers = {**API_HEADERS, 'Authorization': f'Bearer {token}'}
         try:
             r = requests.get("https://api.mail.tm/messages", headers=auth_headers)
@@ -68,8 +71,7 @@ def inbox_mailtm(address, token):
             messages = r.json().get("hydra:member", [])
             
             if not messages:
-                st.info("📭 Nessun messaggio trovato.")
-                return
+                st.info("📭 Nessun messaggio trovato."); return
 
             st.success(f"Trovati {len(messages)} messaggi.")
             for m in reversed(messages):
@@ -81,22 +83,13 @@ def inbox_mailtm(address, token):
 
                 with st.expander(f"✉️ **Da:** {msg.get('from', {}).get('address', 'N/A')} | **Oggetto:** {msg.get('subject', '(Senza oggetto)')}"):
                     st.code(f"A: {', '.join([to['address'] for to in msg.get('to', [])])}\nData: {pd.to_datetime(msg.get('createdAt')).strftime('%d/%m/%Y %H:%M')}", language=None)
-                    st.markdown("---")
-                    
                     html_content_list = msg.get("html", [])
-                    if html_content_list:
-                        st.components.v1.html(html_content_list[0], height=400, scrolling=True)
-                    elif msg.get("text"):
-                        st.text_area("Contenuto (Testo)", msg["text"], height=250, key=f"text_{msg_id}")
-                    else:
-                        st.code(msg.get("intro", "Nessun contenuto disponibile."))
-                        
+                    if html_content_list: st.components.v1.html(html_content_list[0], height=400, scrolling=True)
+                    elif msg.get("text"): st.text_area("Contenuto (Testo)", msg["text"], height=250, key=f"text_{msg_id}")
                     if msg.get("attachments"):
                         st.markdown("**📎 Allegati:**")
-                        for att in msg["attachments"]:
-                            st.markdown(f"- [{att.get('filename')}]({att.get('downloadUrl')}) ({att.get('size')} bytes)")
-        except Exception as e:
-            st.error(f"Errore nella lettura della posta: {e}")
+                        for att in msg["attachments"]: st.markdown(f"- [{att.get('filename')}]({att.get('downloadUrl')})")
+        except Exception as e: st.error(f"Errore nella lettura della posta: {e}")
 
 # --- FUNZIONI DI LOGICA ---
 def get_next_iban(cc):
@@ -113,25 +106,16 @@ def generate_profile(country, extra_fields, selected_domain):
     codes = {'Italia': 'IT', 'Francia': 'FR', 'Germania': 'DE', 'Lussemburgo': 'LU'}
     locale, code = locs[country], codes[country]
     fake = Faker(locale)
-    p = {
-        'Nome': fake.first_name(), 'Cognome': fake.last_name(),
-        'Data di Nascita': fake.date_of_birth(minimum_age=18, maximum_age=80).strftime('%d/%m/%Y'),
-        'Indirizzo': fake.address().replace("\n", ", "), 'IBAN': get_next_iban(code), 'Paese': country
-    }
-
+    p = {'Nome': fake.first_name(), 'Cognome': fake.last_name(), 'Data di Nascita': fake.date_of_birth(minimum_age=18, maximum_age=80).strftime('%d/%m/%Y'), 'Indirizzo': fake.address().replace("\n", ", "), 'IBAN': get_next_iban(code), 'Paese': country}
     if 'Email' in extra_fields:
-        result = create_mailtm_account(selected_domain)
-        st.session_state.email_info = result
+        result = create_mailtm_account(selected_domain); st.session_state.email_info = result
         p["Email"] = result["address"] if result else "Creazione email fallita"
-
     if 'Telefono' in extra_fields: p['Telefono'] = fake.phone_number()
     if 'Codice Fiscale' in extra_fields: p['Codice Fiscale'] = fake.ssn() if locale == 'it_IT' else 'N/A'
     if 'Partita IVA' in extra_fields: p['Partita IVA'] = fake.vat_id() if hasattr(fake, 'vat_id') else 'N/A'
     return pd.DataFrame([p])
 
-# ==============================================================================
-#                      INTERFACCIA UTENTE (UI)
-# ==============================================================================
+# --- INTERFACCIA UTENTE (UI) ---
 st.title("📨 Generatore di Profili Fake")
 st.markdown("Genera profili fittizi con email temporanee reali tramite **mail.tm**.")
 
@@ -145,13 +129,10 @@ with st.sidebar:
     fields = st.multiselect("Campi aggiuntivi", ["Email", "Telefono", "Codice Fiscale", "Partita IVA"], default=["Email"])
 
     all_domains = get_mailtm_domains()
-    if not all_domains:
-        st.warning("⚠️ Impossibile caricare i domini da mail.tm. Riprova più tardi.")
-        st.stop()
-    
-    selected_domain = st.selectbox("Dominio per l'email", all_domains)
+    is_domain_selector_disabled = not all_domains
+    selected_domain = st.selectbox("Dominio per l'email", all_domains, disabled=is_domain_selector_disabled)
 
-    if st.button("🚀 Genera Profili", type="primary"):
+    if st.button("🚀 Genera Profili", type="primary", disabled=is_domain_selector_disabled):
         with st.spinner("Generazione in corso..."):
             dfs = [generate_profile(country, fields, selected_domain) for _ in range(n)]
         st.session_state.final_df = pd.concat(dfs, ignore_index=True)

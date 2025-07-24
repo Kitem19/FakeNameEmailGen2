@@ -1,14 +1,13 @@
 # -*- coding: utf-8 -*-
 import random
 import string
-import time
 import requests
 import pandas as pd
 import streamlit as st
 from faker import Faker
 import xml.etree.ElementTree as ET
 
-st.set_page_config(page_title="Fake Profile Generator - mail.tm only", page_icon="📨", layout="centered")
+st.set_page_config(page_title="Fake Profile Generator (mail.tm full inbox)", page_icon="📨", layout="centered")
 
 PREDEFINED_IBANS = {
     'IT': ['IT60X0542811101000000123456', 'IT12A0306912345100000067890'],
@@ -49,15 +48,28 @@ def inbox_mailtm(address, token):
             if not messages:
                 st.info("📭 Nessun messaggio trovato.")
             for m in messages:
-                with st.expander(f"✉️ {m.get('from',{}).get('address')} | {m.get('subject')}"):
-                    st.markdown(f"**Oggetto:** {m.get('subject', 'N/A')}")
-                    st.markdown(f"**Mittente:** {m.get('from',{}).get('address', 'N/A')}")
-                    st.markdown(f"**Data:** {m.get('createdAt', '')}")
+                msg_id = m["id"]
+                detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
+                msg = detail_resp.json()
+                with st.expander(f"✉️ {msg.get('from',{}).get('address')} | {msg.get('subject')}"):
+                    st.markdown(f"**Oggetto:** {msg.get('subject', 'N/A')}")
+                    st.markdown(f"**Mittente:** {msg.get('from',{}).get('address', 'N/A')}")
+                    st.markdown(f"**Data:** {msg.get('createdAt', '')}")
                     st.markdown("---")
-                    st.markdown("**Anteprima:**")
-                    st.code(m.get('intro', ''))
-                    if m.get('downloadUrl'):
-                        st.markdown(f"[📎 Scarica allegato]({m.get('downloadUrl')})")
+                    if msg.get("html"):
+                        st.markdown("**Contenuto (HTML):**", unsafe_allow_html=True)
+                        st.components.v1.html(msg["html"], height=300, scrolling=True)
+                    elif msg.get("text"):
+                        st.markdown("**Contenuto (Testo):**")
+                        st.code(msg["text"])
+                    else:
+                        st.markdown("**Anteprima:**")
+                        st.code(msg.get("intro", "Nessun contenuto."))
+                    # Allegati
+                    if msg.get("attachments"):
+                        st.markdown("**📎 Allegati:**")
+                        for att in msg["attachments"]:
+                            st.markdown(f"- [{att.get('filename')}]({att.get('downloadUrl')})")
         except Exception as e:
             st.warning(f"Errore nella lettura: {e}")
 
@@ -96,7 +108,7 @@ def generate_profile(country, extra_fields, selected_domain):
 
 # ---------------- UI ---------------- #
 
-st.title("👤 Generatore di Profili Fake con Email Temporanea (Solo mail.tm)")
+st.title("📨 Generatore di Profili Fake con mail.tm (Contenuto completo messaggi)")
 
 if 'final_df' not in st.session_state: st.session_state.final_df = None
 if 'email_info' not in st.session_state: st.session_state.email_info = None

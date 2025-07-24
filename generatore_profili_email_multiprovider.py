@@ -42,9 +42,12 @@ def inbox_mailtm(address, token):
     st.subheader(f"📬 Inbox per [{address}](mailto:{address})")
 
     # Copy-to-clipboard HTML button (safe)
-    st.markdown(f'''
-        <input type="text" value="{address}" id="copyEmail" style="position:absolute; left:-1000px;">
-        <button onclick="navigator.clipboard.writeText(document.getElementById('copyEmail').value)">Copia indirizzo email</button>
+    
+st.markdown(f"""
+    <input id='emailField' type='text' value='{address}' readonly style='position:absolute; left:-1000px;'>
+    <button onclick="navigator.clipboard.writeText('{address}')" style="margin-top:5px;">📋 Copia Email</button>
+""", unsafe_allow_html=True)
+.value)">Copia indirizzo email</button>
         ''', unsafe_allow_html=True)
 
     if st.button("🔁 Controlla inbox (mail.tm)"):
@@ -66,7 +69,13 @@ def inbox_mailtm(address, token):
                     html_content = msg.get("html")
                     if html_content and isinstance(html_content, str):
                         st.markdown("**Contenuto (HTML):**", unsafe_allow_html=True)
-                        st.components.v1.html(html_content, height=300, scrolling=True)
+                        
+    st.markdown("**Contenuto (HTML):**", unsafe_allow_html=True)
+    try:
+        st.components.v1.html(html_content, height=400, scrolling=True)
+    except:
+        st.warning("Errore nel rendering HTML. Mostro come testo.")
+        st.code(html_content)
                     elif msg.get("text"):
                         st.markdown("**Contenuto (Testo):**")
                         st.code(msg["text"])

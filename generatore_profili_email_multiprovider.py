@@ -5,7 +5,7 @@ import requests
 import pandas as pd
 import streamlit as st
 from faker import Faker
-import time # Importiamo time per la gestione della cache
+import time # Importiamo time per la gestione della data
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Generatore Profili Fake", page_icon="📨", layout="centered")
@@ -24,7 +24,6 @@ API_HEADERS = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 def create_guerrillamail_account():
     """Crea un account email temporaneo su Guerrilla Mail."""
     try:
-        # La chiamata a get_email_address ci fornisce l'indirizzo e il token di sessione (sid_token)
         r = requests.get("https://api.guerrillamail.com/ajax.php?f=get_email_address")
         r.raise_for_status()
         data = r.json()
@@ -40,7 +39,6 @@ def inbox_guerrillamail(address, sid_token):
     if st.button("🔁 Controlla inbox (Guerrilla Mail)"):
         with st.spinner("Recupero messaggi..."):
             try:
-                # Usiamo il sid_token per controllare la posta per la nostra sessione
                 r = requests.get(f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={sid_token}")
                 r.raise_for_status()
                 messages = r.json().get("list", [])
@@ -49,9 +47,17 @@ def inbox_guerrillamail(address, sid_token):
                     st.info("📭 Nessun messaggio trovato."); return
 
                 st.success(f"Trovati {len(messages)} messaggi.")
-                for m in messages:
+                for m in reversed(messages): # Mostra i più recenti per primi
                     with st.expander(f"✉️ **Da:** {m['mail_from']} | **Oggetto:** {m['mail_subject']}"):
-                        st.markdown(f"**Data:** {time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(m['mail_timestamp']))}")
+                        
+                        # --- FIX DEFINITIVO: Convertiamo il timestamp da stringa a intero ---
+                        try:
+                            timestamp = int(m['mail_timestamp'])
+                            date_str = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
+                        except (ValueError, KeyError):
+                            date_str = "Data non disponibile"
+                        
+                        st.markdown(f"**Data:** {date_str}")
                         st.markdown("---")
                         # L'API base fornisce solo un estratto. Per il corpo completo servirebbe un'altra chiamata.
                         st.code(m['mail_excerpt'], language=None)
@@ -96,8 +102,6 @@ with st.sidebar:
     country = st.selectbox("Paese", ["Italia", "Francia", "Germania", "Lussemburgo"])
     n = st.number_input("Numero di profili", 1, 25, 1)
     fields = st.multiselect("Campi aggiuntivi", ["Email", "Telefono", "Codice Fiscale", "Partita IVA"], default=["Email"])
-    
-    # Non serve più il selettore del dominio!
     
     if st.button("🚀 Genera Profili", type="primary"):
         with st.spinner("Generazione in corso..."):

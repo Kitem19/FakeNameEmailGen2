@@ -52,7 +52,7 @@ def inbox_mailtm(address, token):
                 st.info("📭 Nessun messaggio trovato.")
             for m in messages:
                 msg_id = m["id"]
-                detail_resp = requests.get("https://api.mail.tm/messages/{}", headers=headers)
+                detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
                 msg = detail_resp.json()
                 with st.expander("✉️ {msg.get('from',{}).get('address')} | {}"):
                     st.markdown("**Oggetto:** {}")

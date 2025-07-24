@@ -77,7 +77,7 @@ def inbox_mailtm(address, token):
                         for att in msg["attachments"]:
                             st.markdown(f"- [{att.get('filename')}]({att.get('downloadUrl')})")
         except Exception as e:
-            st.warning("Errore nella lettura: {}")
+            st.warning(f"Errore nella lettura: {e}")
 
 def get_next_iban(cc):
     cc = cc.upper()

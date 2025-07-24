@@ -17,7 +17,6 @@ PREDEFINED_IBANS = {
     'DE': ['DE89370400440532013000', 'DE02100100100006820101'],
     'LU': ['LU280019400644750000', 'LU120010001234567891']
 }
-API_HEADERS = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 
 # --- FUNZIONI API per Guerrilla Mail (API stabile) ---
 
@@ -39,6 +38,7 @@ def inbox_guerrillamail(address, sid_token):
     if st.button("🔁 Controlla inbox (Guerrilla Mail)"):
         with st.spinner("Recupero messaggi..."):
             try:
+                # Chiamata per ottenere la lista dei messaggi
                 r = requests.get(f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={sid_token}")
                 r.raise_for_status()
                 messages = r.json().get("list", [])
@@ -50,17 +50,24 @@ def inbox_guerrillamail(address, sid_token):
                 for m in reversed(messages): # Mostra i più recenti per primi
                     with st.expander(f"✉️ **Da:** {m['mail_from']} | **Oggetto:** {m['mail_subject']}"):
                         
-                        # --- FIX DEFINITIVO: Convertiamo il timestamp da stringa a intero ---
-                        try:
-                            timestamp = int(m['mail_timestamp'])
-                            date_str = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                        except (ValueError, KeyError):
-                            date_str = "Data non disponibile"
+                        # --- FIX: Chiamata per ottenere il corpo completo dell'email ---
+                        email_id = m['mail_id']
+                        full_email_resp = requests.get(f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={email_id}&sid_token={sid_token}")
+                        full_email_resp.raise_for_status()
+                        full_email_data = full_email_resp.json()
+                        
+                        # Converti il timestamp in data leggibile
+                        timestamp = int(m['mail_timestamp'])
+                        date_str = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                         
                         st.markdown(f"**Data:** {date_str}")
                         st.markdown("---")
-                        # L'API base fornisce solo un estratto. Per il corpo completo servirebbe un'altra chiamata.
-                        st.code(m['mail_excerpt'], language=None)
+                        
+                        # --- FIX: Visualizza il corpo come HTML ---
+                        # Usiamo il corpo completo (`mail_body`) invece dell'estratto (`mail_excerpt`)
+                        email_body = full_email_data.get('mail_body', '<i>Corpo del messaggio non disponibile.</i>')
+                        st.components.v1.html(email_body, height=400, scrolling=True)
+
             except Exception as e:
                 st.error(f"Errore nella lettura della posta: {e}")
 

@@ -42,9 +42,6 @@ def inbox_mailtm(address, token):
     st.subheader(f"📬 Inbox per [{address}](mailto:{address})")
 
     st.markdown(f"""
-        <input id='emailField' type='text' value='{address}' readonly style='position:absolute; left:-1000px;'>
-        <button onclick="navigator.clipboard.writeText(document.getElementById('emailField').value)" style="margin-top:5px;">📋 Copia Email</button>
-    """, unsafe_allow_html=True)
 
     if st.button("🔁 Controlla inbox (mail.tm)"):
         headers = {'Authorization': f'Bearer {token}'}
@@ -69,7 +66,6 @@ def inbox_mailtm(address, token):
                             st.components.v1.html(html_content, height=400, scrolling=True)
                         except:
                             st.warning("Errore nel rendering HTML. Mostro come testo.")
-                            st.code(html_content)
                     elif msg.get("text"):
                         st.markdown("**Contenuto (Testo):**")
                         st.code(msg["text"])

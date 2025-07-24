@@ -55,9 +55,9 @@ def inbox_mailtm(address, token):
                 detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
                 msg = detail_resp.json()
                 with st.expander(f"✉️ {msg.get('from', {}).get('address', 'N/A')} | {msg.get('subject', '(Senza oggetto)')}"):
-                    st.markdown("**Oggetto:** {}")
+                    st.markdown(f"**Oggetto:** {msg.get('subject', '(Senza oggetto)')}")
                     st.markdown(f"**Mittente:** {msg.get('from',{}).get('address', 'N/A')}")
-                    st.markdown("**Data:** {}")
+                    st.markdown(f"**Data:** {msg.get('createdAt', '')}")
                     st.markdown("---")
                     html_content = msg.get("html")
                     if html_content and isinstance(html_content, str):

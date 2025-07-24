@@ -154,3 +154,12 @@ if st.session_state.final_df is not None:
     info = st.session_state.email_info
     if 'Email' in st.session_state.final_df.columns and info:
         inbox_mailtm(info["address"], info["token"])
+
+
+# Se provider è Maildrop, mostro link inbox pubblica
+if email_provider == "maildrop" and "email" in extra_fields:
+    address = fake.user_name() + "@maildrop.cc"
+    local_part = address.split("@")[0]
+    st.success(f"Inbox pubblica per {address}")
+    st.markdown(f"[🔗 Apri Inbox Maildrop](https://maildrop.cc/inbox/{local_part})")
+

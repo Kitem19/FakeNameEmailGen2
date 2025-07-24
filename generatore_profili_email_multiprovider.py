@@ -28,7 +28,7 @@ def get_mailtm_domains():
 def create_mailtm_account(domain):
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
     password = ''.join(random.choices(string.ascii_letters + string.digits, k=16))
-    address = f"{username}@{domain}"
+    address = "{username}@{}"
     data = {"address": address, "password": password}
     try:
         requests.post("https://api.mail.tm/accounts", json=data).raise_for_status()
@@ -52,12 +52,12 @@ def inbox_mailtm(address, token):
                 st.info("📭 Nessun messaggio trovato.")
             for m in messages:
                 msg_id = m["id"]
-                detail_resp = requests.get(f"https://api.mail.tm/messages/{msg_id}", headers=headers)
+                detail_resp = requests.get("https://api.mail.tm/messages/{}", headers=headers)
                 msg = detail_resp.json()
-                with st.expander(f"✉️ {msg.get('from',{}).get('address')} | {msg.get('subject')}"):
-                    st.markdown(f"**Oggetto:** {msg.get('subject', 'N/A')}")
+                with st.expander("✉️ {msg.get('from',{}).get('address')} | {}"):
+                    st.markdown("**Oggetto:** {}")
                     st.markdown(f"**Mittente:** {msg.get('from',{}).get('address', 'N/A')}")
-                    st.markdown(f"**Data:** {msg.get('createdAt', '')}")
+                    st.markdown("**Data:** {}")
                     st.markdown("---")
                     html_content = msg.get("html")
                     if html_content and isinstance(html_content, str):
@@ -77,7 +77,7 @@ def inbox_mailtm(address, token):
                         for att in msg["attachments"]:
                             st.markdown(f"- [{att.get('filename')}]({att.get('downloadUrl')})")
         except Exception as e:
-            st.warning(f"Errore nella lettura: {e}")
+            st.warning("Errore nella lettura: {}")
 
 def get_next_iban(cc):
     cc = cc.upper()

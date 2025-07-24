@@ -1,4 +1,3 @@
-
 # -*- coding: utf-8 -*-
 import random
 import string
@@ -8,7 +7,7 @@ import streamlit as st
 from faker import Faker
 import xml.etree.ElementTree as ET
 
-st.set_page_config(page_title="Generatore Profili Fake", page_icon="👤", layout="centered")
+st.set_page_config(page_title="Generatore di Profili Fake", page_icon="👤", layout="centered")
 
 PREDEFINED_IBANS = {
     'IT': ['IT60X0542811101000000123456', 'IT12A0306912345100000067890'],
@@ -24,7 +23,7 @@ def get_mailtm_domains():
         r = requests.get("https://api.mail.tm/domains", headers={'Accept': 'application/xml'})
         r.raise_for_status()
         xml_root = ET.fromstring(r.text)
-        return [el.text for el in xml_root.findall(".//domain")]
+        return list({el.text for el in xml_root.findall(".//domain")})
     except:
         return []
 
@@ -45,15 +44,18 @@ def inbox_mailtm(address, token):
     st.subheader(f"📬 Inbox per {address}")
     if st.button("🔄 Aggiorna mail.mail.tm"):
         headers = {'Authorization': f'Bearer {token}'}
-        r = requests.get("https://api.mail.tm/messages", headers=headers)
-        msgs = r.json().get("hydra:member", [])
-        if not msgs:
-            st.info("Nessun messaggio.")
-        for m in msgs:
-            with st.expander(f"{m.get('from',{}).get('address')} - {m.get('subject')}"):
-                st.write(m.get('intro'))
+        try:
+            r = requests.get("https://api.mail.tm/messages", headers=headers)
+            msgs = r.json().get("hydra:member", [])
+            if not msgs:
+                st.info("Nessun messaggio.")
+            for m in msgs:
+                with st.expander(f"{m.get('from',{}).get('address')} - {m.get('subject')}"):
+                    st.write(m.get('intro'))
+        except:
+            st.warning("⚠️ Impossibile leggere la casella mail.tm")
 
-# 1secmail (no password/token needed)
+# 1secmail
 def create_1secmail_account():
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
     domain = random.choice(["1secmail.com", "1secmail.net", "1secmail.org"])
@@ -64,9 +66,15 @@ def inbox_1secmail(username, domain):
     if st.button("🔄 Aggiorna mail.1secmail.com"):
         url = f"https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}"
         r = requests.get(url)
-        for m in r.json():
-            with st.expander(f"{m['from']} - {m['subject']}"):
-                st.write(f"ID: {m['id']} | Data: {m['date']}")
+        try:
+            msgs = r.json()
+            if not msgs:
+                st.info("📭 Nessun messaggio trovato.")
+            for m in msgs:
+                with st.expander(f"{m['from']} - {m['subject']}"):
+                    st.write(f"ID: {m['id']} | Data: {m['date']}")
+        except:
+            st.warning("⚠️ Risposta non valida da 1secmail (forse vuota o HTML)")
 
 # GuerrillaMail
 def create_guerrillamail_account():
@@ -80,10 +88,16 @@ def create_guerrillamail_account():
 def inbox_guerrillamail(sid_token):
     st.subheader("📬 Inbox GuerrillaMail")
     if st.button("🔄 Aggiorna mail.guerrillamail.com"):
-        r = requests.get(f"https://api.guerrillamail.com/ajax.php?f=get_email_list&sid_token={sid_token}")
-        for m in r.json().get("list", []):
-            with st.expander(f"{m['mail_from']} - {m['mail_subject']}"):
-                st.write(m['mail_excerpt'])
+        try:
+            r = requests.get(f"https://api.guerrillamail.com/ajax.php?f=get_email_list&sid_token={sid_token}")
+            msgs = r.json().get("list", [])
+            if not msgs:
+                st.info("📭 Nessun messaggio trovato.")
+            for m in msgs:
+                with st.expander(f"{m['mail_from']} - {m['mail_subject']}"):
+                    st.write(m['mail_excerpt'])
+        except:
+            st.warning("⚠️ Impossibile accedere alla inbox GuerrillaMail.")
 
 # ---------------- UTILITY ---------------- #
 
@@ -155,7 +169,6 @@ with st.sidebar:
         dfs = [generate_profile(country, fields, email_provider, selected_domain) for _ in range(n)]
         st.session_state.final_df = pd.concat(dfs, ignore_index=True)
 
-# -- Output finale
 if st.session_state.final_df is not None:
     st.success(f"✅ Generati {len(st.session_state.final_df)} profili.")
     st.dataframe(st.session_state.final_df)

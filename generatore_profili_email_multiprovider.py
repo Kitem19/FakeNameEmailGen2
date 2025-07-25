@@ -6,6 +6,7 @@ import pandas as pd
 import streamlit as st
 from faker import Faker
 import time
+import html # Importiamo html per decodificare le entità HTML
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Generatore di Profili (Guerrilla Mail)", page_icon="📫", layout="centered")
@@ -17,7 +18,16 @@ st.markdown("""
 iframe {
     color-scheme: light;
 }
-
+/* Stile per il testo semplice dell'email, per renderlo bianco e leggibile */
+.email-text-body {
+    white-space: pre-wrap; /* Mantiene la formattazione come a capo e spazi */
+    font-family: monospace;
+    color: #FAFAFA; /* Testo bianco */
+    background-color: rgba(40, 43, 54, 0.5); /* Sfondo leggermente diverso per distinguerlo */
+    padding: 1rem;
+    border-radius: 0.5rem;
+    border: 1px solid rgba(250, 250, 250, 0.2);
+}
 /* Stile per i campi di solo testo, per renderli simili a text_input ma selezionabili */
 .selectable-text-field {
     border: 1px solid rgba(250, 250, 250, 0.2);
@@ -75,8 +85,16 @@ def inbox_guerrillamail(info):
                         full_email_data = full_email_resp.json()
                     timestamp = int(m['mail_timestamp']); date_str = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
                     st.markdown(f"**Data:** {date_str}"); st.markdown("---")
-                    email_body = full_email_data.get('mail_body', '<i>Corpo non disponibile.</i>')
-                    st.components.v1.html(email_body, height=400, scrolling=True)
+                    
+                    email_body_html = full_email_data.get('mail_body')
+                    
+                    # FIX: Se c'è HTML, usalo. Altrimenti, mostra il testo semplice con il nostro stile CSS.
+                    if "<html>" in email_body_html.lower() or "<div>" in email_body_html.lower():
+                        st.components.v1.html(email_body_html, height=400, scrolling=True)
+                    else:
+                        # Decodifica le entità HTML (es. & -> &) e mostra in un div stilizzato
+                        plain_text = html.unescape(email_body_html)
+                        st.markdown(f"<div class='email-text-body'>{plain_text}</div>", unsafe_allow_html=True)
 
 # ==============================================================================
 #                      FUNZIONI DI LOGICA E UI
@@ -104,30 +122,21 @@ def generate_profile(country, extra_fields):
     return pd.DataFrame([p])
 
 def display_profile_card(profile_data):
-    """Mostra un singolo profilo in un formato a scheda, con testo selezionabile."""
     st.subheader("📄 Dettagli del Profilo Generato")
-
-    # Funzione helper per creare i campi
     def render_field(label, value):
         st.markdown(f"**{label}**")
         st.markdown(f"<div class='selectable-text-field'>{value}</div>", unsafe_allow_html=True)
-        
     col1, col2 = st.columns(2)
     with col1: render_field("Nome", profile_data.get("Nome", "N/A"))
     with col2: render_field("Cognome", profile_data.get("Cognome", "N/A"))
-    
     render_field("Data di Nascita", profile_data.get("Data di Nascita", "N/A"))
     render_field("Indirizzo", profile_data.get("Indirizzo", "N/A"))
     render_field("IBAN", profile_data.get("IBAN", "N/A"))
-
     if "Telefono" in profile_data: render_field("Telefono", profile_data.get("Telefono"))
     if "Codice Fiscale" in profile_data: render_field("Codice Fiscale", profile_data.get("Codice Fiscale"))
     if "Partita IVA" in profile_data: render_field("Partita IVA", profile_data.get("Partita IVA"))
-
     if "Email" in profile_data and "fallita" not in profile_data["Email"]:
-        email = profile_data["Email"]
-        st.markdown(f"**Email:** [{email}](mailto:{email})")
-    
+        st.markdown(f"**Email:** [{profile_data['Email']}](mailto:{profile_data['Email']})")
     st.markdown("---")
 
 # --- INTERFACCIA UTENTE (UI) ---

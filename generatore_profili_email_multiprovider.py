@@ -18,6 +18,7 @@ PREDEFINED_IBANS = {
 USER_AGENT_HEADER = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
 
 # --------------------- GUERRILLA MAIL ---------------------
+
 def create_guerrillamail_account():
     try:
         r = requests.get(
@@ -56,9 +57,11 @@ def inbox_guerrillamail(info):
                 st.error(f"Errore lettura posta Guerrilla Mail: {e}")
 
 # --------------------- 1SECMAIL ---------------------------
+
 def create_1secmail_account():
     try:
         domains_resp = requests.get('https://www.1secmail.com/api/v1/?action=getDomainList')
+        domains_resp.raise_for_status()
         domains = domains_resp.json()
         if not domains:
             return None
@@ -66,7 +69,8 @@ def create_1secmail_account():
         username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
         email = f"{username}@{domain}"
         return {"address": email, "username": username, "domain": domain, "provider": "1secmail"}
-    except Exception:
+    except Exception as e:
+        st.error(f"Errore creazione 1secmail: {e}")
         return None
 
 def inbox_1secmail(info):
@@ -74,8 +78,11 @@ def inbox_1secmail(info):
     if st.button("🔁 Controlla inbox (1secmail)"):
         with st.spinner("Recupero messaggi..."):
             try:
-                username = info['username']
-                domain = info['domain']
+                username = info.get('username')
+                domain = info.get('domain')
+                if not username or not domain:
+                    st.error("Informazioni incomplete per 1secmail")
+                    return
                 msgs_resp = requests.get(f'https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}')
                 msgs_resp.raise_for_status()
                 messages = msgs_resp.json()
@@ -84,8 +91,8 @@ def inbox_1secmail(info):
                     return
                 st.success(f"Trovati {len(messages)} messaggi.")
                 for m in reversed(messages):
-                    with st.expander(f"✉️ **Da:** {m['from']} | **Oggetto:** {m['subject']}"):
-                        msg_id = m['id']
+                    with st.expander(f"✉️ **Da:** {m.get('from', '(sconosciuto)')} | **Oggetto:** {m.get('subject', '(nessun oggetto)')}"):
+                        msg_id = m.get('id')
                         msg_resp = requests.get(f'https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}')
                         msg_resp.raise_for_status()
                         msg_data = msg_resp.json()
@@ -95,6 +102,7 @@ def inbox_1secmail(info):
                 st.error(f"Errore lettura posta 1secmail: {e}")
 
 # --------------------- MAIL.TM ----------------------------
+
 def create_mailtm_account():
     try:
         username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
@@ -103,13 +111,16 @@ def create_mailtm_account():
         payload = {"address": f"{username}@mail.tm", "password": password}
         r = requests.post('https://api.mail.tm/accounts', json=payload, headers=headers)
         r.raise_for_status()
-        data = r.json()
         login_payload = {"address": payload['address'], "password": password}
         login_resp = requests.post('https://api.mail.tm/token', json=login_payload, headers=headers)
         login_resp.raise_for_status()
         token = login_resp.json().get('token')
+        if not token:
+            st.error("Token non ricevuto da mail.tm")
+            return None
         return {"address": payload['address'], "token": token, "provider": "mail.tm"}
-    except Exception:
+    except Exception as e:
+        st.error(f"Errore creazione mail.tm: {e}")
         return None
 
 def inbox_mailtm(info):
@@ -141,17 +152,25 @@ def inbox_mailtm(info):
                 st.error(f"Errore lettura posta mail.tm: {e}")
 
 # --------------------- MAILDROP ---------------------------
+
 def create_maildrop_account():
-    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-    address = f"{username}@maildrop.cc"
-    return {"address": address, "username": username, "provider": "maildrop"}
+    try:
+        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        address = f"{username}@maildrop.cc"
+        return {"address": address, "username": username, "provider": "maildrop"}
+    except Exception as e:
+        st.error(f"Errore creazione maildrop: {e}")
+        return None
 
 def inbox_maildrop(info):
     st.subheader(f"📬 Inbox per [{info['address']}] (maildrop)")
     if st.button("🔁 Controlla inbox (maildrop)"):
         with st.spinner("Recupero messaggi..."):
             try:
-                username = info['username']
+                username = info.get('username')
+                if not username:
+                    st.error("Informazioni incomplete per maildrop")
+                    return
                 r = requests.get(f'https://maildrop.cc/api/inbox/{username}')
                 r.raise_for_status()
                 data = r.json()
@@ -180,11 +199,12 @@ PROVIDERS = {
 }
 
 # ---------- PROFILE GENERATOR ----------
+
 def generate_profile(country, extra_fields, provider):
     locs = {'Italia': 'it_IT', 'Francia': 'fr_FR', 'Germania': 'de_DE', 'Lussemburgo': 'fr_LU'}
     codes = {'Italia': 'IT', 'Francia': 'FR', 'Germania': 'DE', 'Lussemburgo': 'LU'}
     fake = Faker(locs[country])
-    p = {
+    profile = {
         'Nome': fake.first_name(),
         'Cognome': fake.last_name(),
         'Data di Nascita': fake.date_of_birth(minimum_age=18, maximum_age=80).strftime('%d/%m/%Y'),
@@ -192,28 +212,29 @@ def generate_profile(country, extra_fields, provider):
         'IBAN': get_next_iban(codes[country]),
         'Paese': country
     }
+
     if 'Email' in extra_fields:
         create_func, _ = PROVIDERS[provider]
         result = create_func()
         if not result or not result.get("address"):
-            p["Email"] = "Creazione email fallita"
+            profile["Email"] = "Creazione email fallita"
             st.session_state.email_info = None
         else:
-            p["Email"] = result["address"]
+            profile["Email"] = result["address"]
             st.session_state.email_info = result
     if 'Telefono' in extra_fields:
-        p['Telefono'] = fake.phone_number()
+        profile['Telefono'] = fake.phone_number()
     if 'Codice Fiscale' in extra_fields:
         try:
-            p['Codice Fiscale'] = fake.ssn() if locs[country] == 'it_IT' else 'N/A'
+            profile['Codice Fiscale'] = fake.ssn() if locs[country] == 'it_IT' else 'N/A'
         except Exception:
-            p['Codice Fiscale'] = 'N/A'
+            profile['Codice Fiscale'] = 'N/A'
     if 'Partita IVA' in extra_fields:
         try:
-            p['Partita IVA'] = fake.vat_id() if hasattr(fake, 'vat_id') else 'N/A'
+            profile['Partita IVA'] = fake.vat_id() if hasattr(fake, 'vat_id') else 'N/A'
         except Exception:
-            p['Partita IVA'] = 'N/A'
-    return pd.DataFrame([p])
+            profile['Partita IVA'] = 'N/A'
+    return pd.DataFrame([profile])
 
 def get_next_iban(cc):
     cc = cc.upper()
@@ -227,6 +248,7 @@ def get_next_iban(cc):
     return st.session_state.iban_state[cc]['list'][st.session_state.iban_state[cc]['index'] - 1]
 
 # ----------------------------------- UI ------------------------------------
+
 st.title("🔀 Generatore di Profili Multi-Provider")
 st.markdown("Genera profili fittizi e scegli tra diversi servizi di email temporanee.")
 
@@ -256,7 +278,9 @@ if st.session_state.final_df is not None:
     st.dataframe(st.session_state.final_df)
     csv = st.session_state.final_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
     st.download_button("📥 Scarica CSV", csv, "profili.csv", "text/csv")
+
     info = st.session_state.email_info
+    # Mostra inbox solo se la mail è valida e non "fallita"
     if 'Email' in st.session_state.final_df.columns and info and "fallita" not in str(info.get("address", "")).lower():
         _, inbox_func = PROVIDERS[info['provider']]
         inbox_func(info)

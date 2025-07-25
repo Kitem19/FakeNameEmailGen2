@@ -34,39 +34,43 @@ def create_guerrillamail_account():
         return None
 
 def inbox_guerrillamail(info):
-    """Mostra l'interfaccia per controllare la casella di posta di Guerrilla Mail."""
+    """Gestisce la logica e la visualizzazione dell'inbox."""
     st.subheader(f"📬 Inbox per: `{info['address']}`")
     
+    # --- FIX: Il pulsante ora aggiorna solo lo stato ---
     if st.button("🔁 Controlla/Aggiorna messaggi"):
         with st.spinner("Recupero messaggi..."):
             try:
-                # Usiamo sempre seq=0 per ottenere TUTTI i messaggi, anche quelli già letti.
                 r = requests.get(f"https://api.guerrillamail.com/ajax.php?f=check_email&seq=0&sid_token={info['sid_token']}", headers=USER_AGENT_HEADER)
                 r.raise_for_status()
-                messages = r.json().get("list", [])
-                
-                if not messages:
-                    st.info("📭 La casella di posta è vuota."); return
-
-                st.success(f"Trovati {len(messages)} messaggi.")
-                for m in reversed(messages): # Mostra i più recenti per primi
-                    with st.expander(f"✉️ **Da:** {m['mail_from']} | **Oggetto:** {m['mail_subject']}"):
-                        with st.spinner("Caricamento corpo del messaggio..."):
-                            email_id = m['mail_id']
-                            full_email_resp = requests.get(f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={email_id}&sid_token={info['sid_token']}", headers=USER_AGENT_HEADER)
-                            full_email_data = full_email_resp.json()
-                        
-                        timestamp = int(m['mail_timestamp'])
-                        date_str = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
-                        
-                        st.markdown(f"**Data:** {date_str}")
-                        st.markdown("---")
-                        
-                        email_body = full_email_data.get('mail_body', '<i>Corpo del messaggio non disponibile.</i>')
-                        st.components.v1.html(email_body, height=400, scrolling=True)
-
+                # Salviamo i messaggi nello stato della sessione
+                st.session_state.messages = r.json().get("list", [])
             except Exception as e:
                 st.error(f"Errore durante la lettura della posta: {e}")
+                st.session_state.messages = [] # Resetta in caso di errore
+
+    # --- FIX: La visualizzazione è separata e legge sempre dallo stato ---
+    if 'messages' in st.session_state and st.session_state.messages is not None:
+        messages = st.session_state.messages
+        if not messages:
+            st.info("📭 La casella di posta è vuota.")
+        else:
+            st.success(f"Trovati {len(messages)} messaggi.")
+            for m in reversed(messages):
+                with st.expander(f"✉️ **Da:** {m['mail_from']} | **Oggetto:** {m['mail_subject']}"):
+                    with st.spinner("Caricamento corpo del messaggio..."):
+                        email_id = m['mail_id']
+                        full_email_resp = requests.get(f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={email_id}&sid_token={info['sid_token']}", headers=USER_AGENT_HEADER)
+                        full_email_data = full_email_resp.json()
+                    
+                    timestamp = int(m['mail_timestamp'])
+                    date_str = time.strftime('%d/%m/%Y %H:%M:%S', time.localtime(timestamp))
+                    
+                    st.markdown(f"**Data:** {date_str}")
+                    st.markdown("---")
+                    
+                    email_body = full_email_data.get('mail_body', '<i>Corpo del messaggio non disponibile.</i>')
+                    st.components.v1.html(email_body, height=400, scrolling=True)
 
 # ==============================================================================
 #                      FUNZIONI DI LOGICA E UI
@@ -96,40 +100,29 @@ def generate_profile(country, extra_fields):
     return pd.DataFrame([p])
 
 def display_profile_card(profile_data):
-    """Mostra un singolo profilo in un formato a scheda, più leggibile."""
     st.subheader("📄 Dettagli del Profilo Generato")
-    
     col1, col2 = st.columns(2)
-    with col1:
-        st.text_input("Nome", value=profile_data.get("Nome", "N/A"), disabled=True)
-    with col2:
-        st.text_input("Cognome", value=profile_data.get("Cognome", "N/A"), disabled=True)
-
-    st.text_input("Data di Nascita", value=profile_data.get("Data di Nascita", "N/A"), disabled=True)
-    st.text_input("Indirizzo", value=profile_data.get("Indirizzo", "N/A"), disabled=True)
-    st.text_input("IBAN", value=profile_data.get("IBAN", "N/A"), disabled=True)
-    
-    # Mostra i campi opzionali solo se presenti
-    if "Telefono" in profile_data:
-        st.text_input("Telefono", value=profile_data.get("Telefono", "N/A"), disabled=True)
-    if "Codice Fiscale" in profile_data:
-        st.text_input("Codice Fiscale", value=profile_data.get("Codice Fiscale", "N/A"), disabled=True)
-    if "Partita IVA" in profile_data:
-        st.text_input("Partita IVA", value=profile_data.get("Partita IVA", "N/A"), disabled=True)
-
-    # L'email è gestita a parte per renderla cliccabile
+    with col1: st.text_input("Nome", value=profile_data.get("Nome"), disabled=True, key="nome")
+    with col2: st.text_input("Cognome", value=profile_data.get("Cognome"), disabled=True, key="cognome")
+    st.text_input("Data di Nascita", value=profile_data.get("Data di Nascita"), disabled=True, key="data_nascita")
+    st.text_input("Indirizzo", value=profile_data.get("Indirizzo"), disabled=True, key="indirizzo")
+    st.text_input("IBAN", value=profile_data.get("IBAN"), disabled=True, key="iban")
+    if "Telefono" in profile_data: st.text_input("Telefono", value=profile_data.get("Telefono"), disabled=True, key="telefono")
+    if "Codice Fiscale" in profile_data: st.text_input("Codice Fiscale", value=profile_data.get("Codice Fiscale"), disabled=True, key="cf")
+    if "Partita IVA" in profile_data: st.text_input("Partita IVA", value=profile_data.get("Partita IVA"), disabled=True, key="piva")
     if "Email" in profile_data and "fallita" not in profile_data["Email"]:
-        email = profile_data["Email"]
-        st.markdown(f"**Email:** [{email}](mailto:{email})")
-    
+        st.markdown(f"**Email:** [{profile_data['Email']}](mailto:{profile_data['Email']})")
     st.markdown("---")
 
 # --- INTERFACCIA UTENTE (UI) ---
 st.title("📫 Generatore di Profili con Guerrilla Mail")
 st.markdown("Genera profili fittizi completi di un'email temporanea funzionante e affidabile.")
 
+# Inizializza lo stato se non esiste
 if 'final_df' not in st.session_state: st.session_state.final_df = None
 if 'email_info' not in st.session_state: st.session_state.email_info = None
+if 'messages' not in st.session_state: st.session_state.messages = None
+if 'show_success' not in st.session_state: st.session_state.show_success = False
 
 with st.sidebar:
     st.header("⚙️ Opzioni")
@@ -141,11 +134,17 @@ with st.sidebar:
         with st.spinner("Generazione in corso..."):
             dfs = [generate_profile(country, fields) for _ in range(n)]
         st.session_state.final_df = pd.concat([df for df in dfs if not df.empty], ignore_index=True)
+        # Resetta lo stato dei messaggi precedenti e imposta il flag per il messaggio di successo
+        st.session_state.messages = None
+        st.session_state.show_success = True
 
+# La visualizzazione principale ora legge sempre dallo stato
 if st.session_state.final_df is not None:
-    st.success(f"✅ Generati {len(st.session_state.final_df)} profili.")
+    # FIX: Mostra il messaggio di successo solo una volta
+    if st.session_state.show_success:
+        st.success(f"✅ Generati {len(st.session_state.final_df)} profili.")
+        st.session_state.show_success = False # "Consuma" il flag
     
-    # Logica di visualizzazione: scheda per un profilo, tabella per più profili
     if len(st.session_state.final_df) == 1:
         display_profile_card(st.session_state.final_df.iloc[0])
     else:

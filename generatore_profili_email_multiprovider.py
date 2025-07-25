@@ -6,7 +6,6 @@ import pandas as pd
 import streamlit as st
 from faker import Faker
 import hashlib
-from bs4 import BeautifulSoup
 
 st.set_page_config(page_title="Generatore di Profili Multi-Provider", page_icon="🔀", layout="centered")
 
@@ -18,11 +17,11 @@ PREDEFINED_IBANS = {
 }
 USER_AGENT_HEADER = {'User-Agent': 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'}
 
-# ------------------------------- PROVIDER: GUERRILLA MAIL --------------------------------
+# --------------------- GUERRILLA MAIL ---------------------
 def create_guerrillamail_account():
     try:
         r = requests.get(
-            "https://api.guerrillamail.com/ajax.php?f=get_email_address", 
+            "https://api.guerrillamail.com/ajax.php?f=get_email_address",
             headers=USER_AGENT_HEADER)
         r.raise_for_status()
         data = r.json()
@@ -32,7 +31,7 @@ def create_guerrillamail_account():
         return None
 
 def inbox_guerrillamail(info):
-    st.subheader(f"📬 Inbox per [{info['address']}]")
+    st.subheader(f"📬 Inbox per [{info['address']}] (Guerrilla Mail)")
     if st.button("🔁 Controlla inbox (Guerrilla Mail)"):
         with st.spinner("Recupero messaggi..."):
             try:
@@ -49,96 +48,138 @@ def inbox_guerrillamail(info):
                 for m in reversed(messages):
                     with st.expander(f"✉️ **Da:** {m['mail_from']} | **Oggetto:** {m['mail_subject']}"):
                         full_email_resp = requests.get(
-                            f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={m['mail_id']}&sid_token={info['sid_token']}", 
+                            f"https://api.guerrillamail.com/ajax.php?f=fetch_email&email_id={m['mail_id']}&sid_token={info['sid_token']}",
                             headers=USER_AGENT_HEADER)
                         email_body = full_email_resp.json().get('mail_body', '<i>Corpo non disponibile.</i>')
                         st.components.v1.html(email_body, height=400, scrolling=True)
             except Exception as e:
                 st.error(f"Errore lettura posta Guerrilla Mail: {e}")
 
-# ----------------------------- PROVIDER: YOPMAIL [solo GET!] ----------------------------
-def create_yopmail_account():
-    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-    address = f"{username}@yopmail.com"
-    return {"address": address, "provider": "YOPmail"}
+# --------------------- 1SECMAIL ---------------------------
+def create_1secmail_account():
+    try:
+        domains_resp = requests.get('https://www.1secmail.com/api/v1/?action=getDomainList')
+        domains = domains_resp.json()
+        if not domains:
+            return None
+        domain = random.choice(domains)
+        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        email = f"{username}@{domain}"
+        return {"address": email, "username": username, "domain": domain, "provider": "1secmail"}
+    except Exception:
+        return None
 
-def inbox_yopmail(info):
-    st.subheader(f"📬 Inbox per [{info['address']}]")
-    if st.button("🔁 Controlla inbox (YOPmail)"):
-        with st.spinner("Recupero messaggi da YOPmail.com..."):
-            try:
-                username = info['address'].split('@')[0]
-                inbox_url = f"https://yopmail.com/en/{username}"
-                inbox_page = requests.get(inbox_url, headers=USER_AGENT_HEADER)
-                inbox_page.raise_for_status()
-                soup = BeautifulSoup(inbox_page.text, 'lxml')
-                messages = soup.find_all('div', class_='m')
-                if not messages:
-                    st.info("📭 Nessun messaggio trovato.")
-                    return
-                st.success(f"Trovati {len(messages)} messaggi.")
-                for m in reversed(messages):
-                    try:
-                        sender = m.find('span', class_='s_from').text if m.find('span', class_='s_from') else "(sconosciuto)"
-                        subject = m.find('span', class_='s_subject').text if m.find('span', class_='s_subject') else "(nessun oggetto)"
-                        href = m.find('a')['href'] if m.find('a') else ""
-                        email_id = href.split('id=')[1] if 'id=' in href else None
-                        if not email_id:
-                            continue
-                        with st.expander(f"✉️ **Da:** {sender} | **Oggetto:** {subject}"):
-                            with st.spinner("Caricamento corpo del messaggio..."):
-                                mail_page = requests.get(f"https://www.yopmail.com/en/mail?id={email_id}", headers=USER_AGENT_HEADER)
-                                mail_page.raise_for_status()
-                                mail_soup = BeautifulSoup(mail_page.text, 'lxml')
-                                email_body = mail_soup.find('div', id='mail')
-                                st.components.v1.html(str(email_body) if email_body else "<i>Corpo non disponibile.</i>", height=400, scrolling=True)
-                    except Exception:
-                        st.warning("Messaggio non completamente leggibile.")
-            except Exception as e:
-                st.error(f"Errore scraping YOPmail: {e}")
-
-# ------------------------- PROVIDER: TEMP-MAIL.ORG via RapidAPI -------------------------
-def create_tempmail_account():
-    domain = random.choice(["greencafe24.com", "chacuo.net"])
-    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
-    return {"address": f"{username}@{domain}", "provider": "Temp-Mail.org"}
-
-def inbox_tempmail(info):
-    st.subheader(f"📬 Inbox per [{info['address']}]")
-    if st.button("🔁 Controlla inbox (Temp-Mail.org)"):
+def inbox_1secmail(info):
+    st.subheader(f"📬 Inbox per [{info['address']}] (1secmail)")
+    if st.button("🔁 Controlla inbox (1secmail)"):
         with st.spinner("Recupero messaggi..."):
-            api_key = st.secrets.get("rapidapi", {}).get("key")
-            if not api_key:
-                st.error("Chiave API non configurata!")
-                return
-            url = f"https://privatix-temp-mail-v1.p.rapidapi.com/request/mail/id/{hashlib.md5(info['address'].encode('utf-8')).hexdigest()}/"
-            headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "privatix-temp-mail-v1.p.rapidapi.com"}
             try:
-                r = requests.get(url, headers=headers)
-                r.raise_for_status()
-                messages = r.json()
-                if not isinstance(messages, list):
-                    st.error(f"Risposta inattesa dall'API: {messages}")
-                    return
+                username = info['username']
+                domain = info['domain']
+                msgs_resp = requests.get(f'https://www.1secmail.com/api/v1/?action=getMessages&login={username}&domain={domain}')
+                msgs_resp.raise_for_status()
+                messages = msgs_resp.json()
                 if not messages:
                     st.info("📭 Nessun messaggio trovato.")
                     return
                 st.success(f"Trovati {len(messages)} messaggi.")
                 for m in reversed(messages):
-                    with st.expander(f"✉️ **Da:** {m['mail_from']} | **Oggetto:** {m['mail_subject']}"):
-                        email_body = m.get('mail_html') or m.get('mail_text') or "<i>Corpo non disponibile.</i>"
-                        st.components.v1.html(email_body, height=400, scrolling=True)
+                    with st.expander(f"✉️ **Da:** {m['from']} | **Oggetto:** {m['subject']}"):
+                        msg_id = m['id']
+                        msg_resp = requests.get(f'https://www.1secmail.com/api/v1/?action=readMessage&login={username}&domain={domain}&id={msg_id}')
+                        msg_resp.raise_for_status()
+                        msg_data = msg_resp.json()
+                        body_html = msg_data.get('htmlBody') or msg_data.get('textBody') or "<i>Corpo non disponibile.</i>"
+                        st.components.v1.html(body_html, height=400, scrolling=True)
             except Exception as e:
-                st.error(f"Errore lettura posta Temp-Mail: {e}")
+                st.error(f"Errore lettura posta 1secmail: {e}")
 
-# ----------------------------------- MAPPATURA PROVIDERS ---------------------------------
+# --------------------- MAIL.TM ----------------------------
+def create_mailtm_account():
+    try:
+        username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+        password = ''.join(random.choices(string.ascii_letters + string.digits, k=12))
+        headers = {"Content-Type": "application/json"}
+        payload = {"address": f"{username}@mail.tm", "password": password}
+        r = requests.post('https://api.mail.tm/accounts', json=payload, headers=headers)
+        r.raise_for_status()
+        data = r.json()
+        login_payload = {"address": payload['address'], "password": password}
+        login_resp = requests.post('https://api.mail.tm/token', json=login_payload, headers=headers)
+        login_resp.raise_for_status()
+        token = login_resp.json().get('token')
+        return {"address": payload['address'], "token": token, "provider": "mail.tm"}
+    except Exception:
+        return None
+
+def inbox_mailtm(info):
+    st.subheader(f"📬 Inbox per [{info['address']}] (mail.tm)")
+    if st.button("🔁 Controlla inbox (mail.tm)"):
+        with st.spinner("Recupero messaggi..."):
+            try:
+                token = info.get('token')
+                if not token:
+                    st.error("Token mancante per mail.tm")
+                    return
+                headers = {"Authorization": f"Bearer {token}", "Accept": "application/json"}
+                r = requests.get('https://api.mail.tm/messages', headers=headers)
+                r.raise_for_status()
+                messages = r.json().get('hydra:member', [])
+                if not messages:
+                    st.info("📭 Nessun messaggio trovato.")
+                    return
+                st.success(f"Trovati {len(messages)} messaggi.")
+                for m in reversed(messages):
+                    with st.expander(f"✉️ **Da:** {m.get('from', {}).get('address', 'Sconosciuto')} | **Oggetto:** {m.get('subject', 'Senza oggetto')}"):
+                        msg_id = m['id']
+                        msg_resp = requests.get(f'https://api.mail.tm/messages/{msg_id}', headers=headers)
+                        msg_resp.raise_for_status()
+                        msg_data = msg_resp.json()
+                        body_html = msg_data.get('text') or "<i>Corpo non disponibile.</i>"
+                        st.write(body_html)
+            except Exception as e:
+                st.error(f"Errore lettura posta mail.tm: {e}")
+
+# --------------------- MAILDROP ---------------------------
+def create_maildrop_account():
+    username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
+    address = f"{username}@maildrop.cc"
+    return {"address": address, "username": username, "provider": "maildrop"}
+
+def inbox_maildrop(info):
+    st.subheader(f"📬 Inbox per [{info['address']}] (maildrop)")
+    if st.button("🔁 Controlla inbox (maildrop)"):
+        with st.spinner("Recupero messaggi..."):
+            try:
+                username = info['username']
+                r = requests.get(f'https://maildrop.cc/api/inbox/{username}')
+                r.raise_for_status()
+                data = r.json()
+                messages = data.get('msgs', [])
+                if not messages:
+                    st.info("📭 Nessun messaggio trovato.")
+                    return
+                st.success(f"Trovati {len(messages)} messaggi.")
+                for m in reversed(messages):
+                    with st.expander(f"✉️ **Da:** {m.get('f', '(sconosciuto)')} | **Oggetto:** {m.get('s', '(nessun oggetto)')}"):
+                        msg_id = m.get('i')
+                        msg_resp = requests.get(f'https://maildrop.cc/api/msg/{username}/{msg_id}')
+                        msg_resp.raise_for_status()
+                        msg_data = msg_resp.json()
+                        body_html = msg_data.get('html') or msg_data.get('body') or "<i>Corpo non disponibile.</i>"
+                        st.components.v1.html(body_html, height=400, scrolling=True)
+            except Exception as e:
+                st.error(f"Errore lettura posta maildrop: {e}")
+
+# ------- PROVIDER CHOICE MAPPING -------
 PROVIDERS = {
     "Guerrilla Mail": (create_guerrillamail_account, inbox_guerrillamail),
-    "YOPmail": (create_yopmail_account, inbox_yopmail),
-    "Temp-Mail.org": (create_tempmail_account, inbox_tempmail)
+    "1secmail": (create_1secmail_account, inbox_1secmail),
+    "mail.tm": (create_mailtm_account, inbox_mailtm),
+    "maildrop": (create_maildrop_account, inbox_maildrop)
 }
 
-# ------------------------------------- PROFILE GENERATOR ---------------------------------
+# ---------- PROFILE GENERATOR ----------
 def generate_profile(country, extra_fields, provider):
     locs = {'Italia': 'it_IT', 'Francia': 'fr_FR', 'Germania': 'de_DE', 'Lussemburgo': 'fr_LU'}
     codes = {'Italia': 'IT', 'Francia': 'FR', 'Germania': 'DE', 'Lussemburgo': 'LU'}
@@ -185,7 +226,7 @@ def get_next_iban(cc):
     st.session_state.iban_state[cc]['index'] += 1
     return st.session_state.iban_state[cc]['list'][st.session_state.iban_state[cc]['index'] - 1]
 
-# ----------------------------------------- UI --------------------------------------------
+# ----------------------------------- UI ------------------------------------
 st.title("🔀 Generatore di Profili Multi-Provider")
 st.markdown("Genera profili fittizi e scegli tra diversi servizi di email temporanee.")
 
@@ -199,18 +240,13 @@ with st.sidebar:
     country = st.selectbox("Paese", ["Italia", "Francia", "Germania", "Lussemburgo"])
     n = st.number_input("Numero di profili", 1, 25, 1)
     fields = st.multiselect(
-        "Campi aggiuntivi", 
-        ["Email", "Telefono", "Codice Fiscale", "Partita IVA"], 
+        "Campi aggiuntivi",
+        ["Email", "Telefono", "Codice Fiscale", "Partita IVA"],
         default=["Email"]
     )
     st.header("📧 Opzioni Email")
     selected_provider = st.selectbox("Scegli il provider email", list(PROVIDERS.keys()))
-    is_button_disabled = False
-    if selected_provider == "Temp-Mail.org":
-        if not st.secrets.get("rapidapi", {}).get("key"):
-            st.error("Per usare Temp-Mail.org, imposta la chiave API nei Secrets.")
-            is_button_disabled = True
-    if st.button("🚀 Genera Profili", type="primary", disabled=is_button_disabled):
+    if st.button("🚀 Genera Profili", type="primary"):
         with st.spinner("Generazione in corso..."):
             dfs = [generate_profile(country, fields, selected_provider) for _ in range(n)]
         st.session_state.final_df = pd.concat([df for df in dfs if not df.empty], ignore_index=True)
@@ -221,7 +257,6 @@ if st.session_state.final_df is not None:
     csv = st.session_state.final_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
     st.download_button("📥 Scarica CSV", csv, "profili.csv", "text/csv")
     info = st.session_state.email_info
-    # Mostra inbox solo se la mail è OK
     if 'Email' in st.session_state.final_df.columns and info and "fallita" not in str(info.get("address", "")).lower():
         _, inbox_func = PROVIDERS[info['provider']]
         inbox_func(info)

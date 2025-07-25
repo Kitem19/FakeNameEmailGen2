@@ -7,10 +7,9 @@ import streamlit as st
 from faker import Faker
 import time
 import hashlib
-import json
 
 # --- CONFIGURAZIONE PAGINA ---
-st.set_page_config(page_title="Generatore di Profili Affidabile", page_icon="✅", layout="centered")
+st.set_page_config(page_title="Generatore di Profili Multi-Provider", page_icon="🔀", layout="centered")
 
 # --- COSTANTI E DATI PREDEFINITI ---
 PREDEFINED_IBANS = {
@@ -19,13 +18,13 @@ PREDEFINED_IBANS = {
     'DE': ['DE89370400440532013000', 'DE02100100100006820101'],
     'LU': ['LU280019400644750000', 'LU120010001234567891']
 }
-TEMPMAIL_DOMAINS = ["greencafe24.com", "chacuo.net", "fexpost.com", "shop.megantv.com"]
+API_HEADERS = {'Accept': 'application/json', 'Content-Type': 'application/json'}
 
 # ==============================================================================
 #                      FUNZIONI API PER OGNI PROVIDER
 # ==============================================================================
 
-# --- Provider 1: Guerrilla Mail (Stabile, non richiede chiave) ---
+# --- Provider 1: Guerrilla Mail (Stabile) ---
 def create_guerrillamail_account():
     try:
         r = requests.get("https://api.guerrillamail.com/ajax.php?f=get_email_address")
@@ -57,8 +56,11 @@ def inbox_guerrillamail(info):
                         st.components.v1.html(email_body, height=400, scrolling=True)
             except Exception as e: st.error(f"Errore lettura posta: {e}")
 
-# --- Provider 2: Temp-Mail.org (API UFFICIALE via RapidAPI) ---
-def create_tempmail_account(domain):
+# --- Provider 2: Temp-Mail.org (Alternativa via RapidAPI) ---
+def create_tempmail_account():
+    # La creazione è "virtuale", l'indirizzo viene generato localmente
+    # e l'API lo riconoscerà tramite il suo hash MD5.
+    domain = random.choice(["greencafe24.com", "chacuo.net", "fexpost.com"])
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
     address = f"{username}@{domain}"
     return {"address": address, "provider": "Temp-Mail.org"}
@@ -67,26 +69,15 @@ def inbox_tempmail(info):
     st.subheader(f"📬 Inbox per [{info['address']}]")
     if st.button("🔁 Controlla inbox (Temp-Mail.org)"):
         with st.spinner("Recupero messaggi..."):
-            # FIX: Prende la chiave API dai secrets di Streamlit
             api_key = st.secrets.get("rapidapi", {}).get("key")
-            if not api_key:
-                st.error("Chiave API per Temp-Mail.org non configurata nei secrets di Streamlit.")
-                return
-
-            url = "https://privatix-temp-mail-v1.p.rapidapi.com/request/mail/id/"
-            md5_hash = hashlib.md5(info['address'].encode('utf-8')).hexdigest()
-            full_url = f"{url}{md5_hash}/"
-            headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "privatix-temp-mail-v1.p.rapidapi.com"}
+            if not api_key: st.error("Chiave API per Temp-Mail.org non configurata!"); return
             
+            url = f"https://privatix-temp-mail-v1.p.rapidapi.com/request/mail/id/{hashlib.md5(info['address'].encode('utf-8')).hexdigest()}/"
+            headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "privatix-temp-mail-v1.p.rapidapi.com"}
             try:
-                r = requests.get(full_url, headers=headers); r.raise_for_status()
-                # FIX: Gestione robusta della risposta
+                r = requests.get(url, headers=headers); r.raise_for_status()
                 messages = r.json()
-                if not isinstance(messages, list):
-                    st.error("L'API non ha restituito una lista di messaggi. Risposta ricevuta:")
-                    st.json(messages)
-                    return
-                
+                if not isinstance(messages, list): st.error(f"Risposta inattesa dall'API: {messages}"); return
                 if not messages: st.info("📭 Nessun messaggio trovato."); return
                 st.success(f"Trovati {len(messages)} messaggi.")
                 for m in reversed(messages):
@@ -94,21 +85,63 @@ def inbox_tempmail(info):
                         st.markdown(f"**Data:** {m['mail_timestamp']}"); st.markdown("---")
                         email_body = m.get('mail_html') or m.get('mail_text') or "<i>Corpo non disponibile.</i>"
                         st.components.v1.html(email_body, height=400, scrolling=True)
-            except Exception as e: st.error(f"Errore lettura posta (controlla la chiave API): {e}")
+            except Exception as e: st.error(f"Errore lettura posta: {e}")
+
+# --- Provider 3: 10 Minute Mail (.net) ---
+def create_10minutemail_account():
+    """Crea un account su 10minutemail.net."""
+    try:
+        r = requests.get("https://10minutemail.net/address.api.php?new=1")
+        r.raise_for_status()
+        data = r.json()
+        return {"address": data['mail_get_mail'], "key": data['key'], "provider": "10 Minute Mail"}
+    except requests.exceptions.RequestException as e:
+        st.error(f"Errore 10 Minute Mail: {e}"); return None
+
+def inbox_10minutemail(info):
+    """Mostra l'inbox di 10minutemail.net."""
+    st.subheader(f"📬 Inbox per [{info['address']}]")
+    if st.button("🔁 Controlla inbox (10 Minute Mail)"):
+        with st.spinner("Recupero messaggi..."):
+            try:
+                mail_user = info['address'].split('@')[0]
+                list_url = f"https://10minutemail.net/address.api.php?refresh=1&mail_id={mail_user}"
+                r_list = requests.get(list_url); r_list.raise_for_status()
+                messages = r_list.json()
+                if not messages: st.info("📭 Nessun messaggio trovato."); return
+                st.success(f"Trovati {len(messages)} messaggi.")
+                for m in reversed(messages):
+                    with st.expander(f"✉️ **Da:** {m['from']} | **Oggetto:** {m['subject']}"):
+                        msg_id = m['mail_id']
+                        key = info['key']
+                        body_url = f"https://10minutemail.net/mail.api.php?mailid={msg_id}&key={key}"
+                        r_body = requests.get(body_url); r_body.raise_for_status()
+                        email_body = r_body.text # Questa API restituisce direttamente HTML
+                        st.markdown(f"**Data:** {m['datetime']}"); st.markdown("---")
+                        st.components.v1.html(email_body, height=400, scrolling=True)
+            except Exception as e: st.error(f"Errore lettura posta: {e}")
 
 # ==============================================================================
 #                      LOGICA PRINCIPALE E UI
 # ==============================================================================
-CREATE_FUNCTIONS = {"Guerrilla Mail": create_guerrillamail_account, "Temp-Mail.org": create_tempmail_account}
-INBOX_FUNCTIONS = {"Guerrilla Mail": inbox_guerrillamail, "Temp-Mail.org": inbox_tempmail}
+CREATE_FUNCTIONS = {
+    "Guerrilla Mail": create_guerrillamail_account,
+    "Temp-Mail.org": create_tempmail_account,
+    "10 Minute Mail": create_10minutemail_account
+}
+INBOX_FUNCTIONS = {
+    "Guerrilla Mail": inbox_guerrillamail,
+    "Temp-Mail.org": inbox_tempmail,
+    "10 Minute Mail": inbox_10minutemail
+}
 
-def generate_profile(country, extra_fields, provider, tempmail_domain=None):
+def generate_profile(country, extra_fields, provider):
     locs = {'Italia': 'it_IT', 'Francia': 'fr_FR', 'Germania': 'de_DE', 'Lussemburgo': 'fr_LU'}
     codes = {'Italia': 'IT', 'Francia': 'FR', 'Germania': 'DE', 'Lussemburgo': 'LU'}; fake = Faker(locs[country])
     p = {'Nome': fake.first_name(), 'Cognome': fake.last_name(), 'Data di Nascita': fake.date_of_birth(minimum_age=18, maximum_age=80).strftime('%d/%m/%Y'), 'Indirizzo': fake.address().replace("\n", ", "), 'IBAN': get_next_iban(codes[country]), 'Paese': country}
     if 'Email' in extra_fields:
         create_func = CREATE_FUNCTIONS[provider]
-        result = create_func(tempmail_domain) if provider == "Temp-Mail.org" else create_func()
+        result = create_func()
         st.session_state.email_info = result
         p["Email"] = result["address"] if result else "Creazione email fallita"
     if 'Telefono' in extra_fields: p['Telefono'] = fake.phone_number()
@@ -125,7 +158,7 @@ def get_next_iban(cc):
     st.session_state.iban_state[cc]['index'] += 1
     return st.session_state.iban_state[cc]['list'][st.session_state.iban_state[cc]['index'] - 1]
 
-st.title("✅ Generatore di Profili Affidabile")
+st.title("🔀 Generatore di Profili Multi-Provider")
 st.markdown("Genera profili fittizi e scegli tra diversi servizi di email temporanee.")
 
 if 'final_df' not in st.session_state: st.session_state.final_df = None
@@ -137,20 +170,17 @@ with st.sidebar:
     n = st.number_input("Numero di profili", 1, 25, 1)
     fields = st.multiselect("Campi aggiuntivi", ["Email", "Telefono", "Codice Fiscale", "Partita IVA"], default=["Email"])
     st.header("📧 Opzioni Email")
-    selected_provider = st.selectbox("Scegli il provider email", ["Guerrilla Mail", "Temp-Mail.org"])
+    selected_provider = st.selectbox("Scegli il provider email", ["Guerrilla Mail", "10 Minute Mail", "Temp-Mail.org"])
     
-    selected_tempmail_domain = None
     is_button_disabled = False
     if selected_provider == "Temp-Mail.org":
-        selected_tempmail_domain = st.selectbox("Dominio per Temp-Mail.org", TEMPMAIL_DOMAINS)
-        # Controlla se la chiave API è configurata
         if not st.secrets.get("rapidapi", {}).get("key"):
-            st.error("La chiave API per Temp-Mail.org non è configurata! Impostala nei Secrets della tua app.")
+            st.error("Per usare Temp-Mail.org, imposta la chiave API nei Secrets di Streamlit.")
             is_button_disabled = True
     
     if st.button("🚀 Genera Profili", type="primary", disabled=is_button_disabled):
         with st.spinner("Generazione in corso..."):
-            dfs = [generate_profile(country, fields, selected_provider, selected_tempmail_domain) for _ in range(n)]
+            dfs = [generate_profile(country, fields, selected_provider) for _ in range(n)]
         st.session_state.final_df = pd.concat([df for df in dfs if not df.empty], ignore_index=True)
 
 if st.session_state.final_df is not None:

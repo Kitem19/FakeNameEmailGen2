@@ -58,8 +58,6 @@ def inbox_guerrillamail(info):
 
 # --- Provider 2: Temp-Mail.org (Alternativa via RapidAPI) ---
 def create_tempmail_account():
-    # La creazione è "virtuale", l'indirizzo viene generato localmente
-    # e l'API lo riconoscerà tramite il suo hash MD5.
     domain = random.choice(["greencafe24.com", "chacuo.net", "fexpost.com"])
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
     address = f"{username}@{domain}"
@@ -71,7 +69,6 @@ def inbox_tempmail(info):
         with st.spinner("Recupero messaggi..."):
             api_key = st.secrets.get("rapidapi", {}).get("key")
             if not api_key: st.error("Chiave API per Temp-Mail.org non configurata!"); return
-            
             url = f"https://privatix-temp-mail-v1.p.rapidapi.com/request/mail/id/{hashlib.md5(info['address'].encode('utf-8')).hexdigest()}/"
             headers = {"X-RapidAPI-Key": api_key, "X-RapidAPI-Host": "privatix-temp-mail-v1.p.rapidapi.com"}
             try:
@@ -91,10 +88,12 @@ def inbox_tempmail(info):
 def create_10minutemail_account():
     """Crea un account su 10minutemail.net."""
     try:
+        # FIX: Non serve nessun header speciale qui
         r = requests.get("https://10minutemail.net/address.api.php?new=1")
         r.raise_for_status()
         data = r.json()
-        return {"address": data['mail_get_mail'], "key": data['key'], "provider": "10 Minute Mail"}
+        # FIX: L'API non restituisce una 'key'. Non ci serve.
+        return {"address": data['mail_get_mail'], "provider": "10 Minute Mail"}
     except requests.exceptions.RequestException as e:
         st.error(f"Errore 10 Minute Mail: {e}"); return None
 
@@ -104,20 +103,21 @@ def inbox_10minutemail(info):
     if st.button("🔁 Controlla inbox (10 Minute Mail)"):
         with st.spinner("Recupero messaggi..."):
             try:
+                # FIX: L'API restituisce tutto in una sola chiamata usando il nome utente.
                 mail_user = info['address'].split('@')[0]
                 list_url = f"https://10minutemail.net/address.api.php?refresh=1&mail_id={mail_user}"
-                r_list = requests.get(list_url); r_list.raise_for_status()
-                messages = r_list.json()
+                r = requests.get(list_url); r.raise_for_status()
+                messages = r.json().get('mail_list', []) # I messaggi sono in 'mail_list'
+                
                 if not messages: st.info("📭 Nessun messaggio trovato."); return
                 st.success(f"Trovati {len(messages)} messaggi.")
+                
                 for m in reversed(messages):
+                    # FIX: Non serve una seconda chiamata, il corpo è già qui.
                     with st.expander(f"✉️ **Da:** {m['from']} | **Oggetto:** {m['subject']}"):
-                        msg_id = m['mail_id']
-                        key = info['key']
-                        body_url = f"https://10minutemail.net/mail.api.php?mailid={msg_id}&key={key}"
-                        r_body = requests.get(body_url); r_body.raise_for_status()
-                        email_body = r_body.text # Questa API restituisce direttamente HTML
-                        st.markdown(f"**Data:** {m['datetime']}"); st.markdown("---")
+                        st.markdown(f"**Data:** {m['datetime2']}"); st.markdown("---")
+                        # Il corpo completo è nel campo 'body_html'
+                        email_body = m.get('body_html', '<i>Corpo non disponibile.</i>')
                         st.components.v1.html(email_body, height=400, scrolling=True)
             except Exception as e: st.error(f"Errore lettura posta: {e}")
 
@@ -175,7 +175,7 @@ with st.sidebar:
     is_button_disabled = False
     if selected_provider == "Temp-Mail.org":
         if not st.secrets.get("rapidapi", {}).get("key"):
-            st.error("Per usare Temp-Mail.org, imposta la chiave API nei Secrets di Streamlit.")
+            st.error("Per usare Temp-Mail.org, imposta la chiave API nei Secrets.")
             is_button_disabled = True
     
     if st.button("🚀 Genera Profili", type="primary", disabled=is_button_disabled):

@@ -1,4 +1,6 @@
 streamlit
-faker
 pandas
+faker
 requests
+beautifulsoup4
+lxml 

@@ -117,4 +117,80 @@ def generate_profile(country, extra_fields, provider):
     profile = {
         'Nome': fake.first_name(),
         'Cognome': fake.last_name(),
-        'Data di Nascita': fake.date_of_birth(minimum_age
+        'Data di Nascita': fake.date_of_birth(minimum_age=18, maximum_age=80).strftime('%d/%m/%Y'),
+        'Indirizzo': fake.address().replace("\n", ", "),
+        'IBAN': get_next_iban(codes[country]),
+        'Paese': country
+    }
+
+    if 'Email' in extra_fields:
+        create_func, _ = PROVIDERS[provider]
+        result = create_func()
+        if not result or not result.get("address"):
+            profile["Email"] = "Creazione email fallita"
+            st.session_state.email_info = None
+        else:
+            profile["Email"] = result["address"]
+            st.session_state.email_info = result
+    if 'Telefono' in extra_fields:
+        profile['Telefono'] = fake.phone_number()
+    if 'Codice Fiscale' in extra_fields:
+        try:
+            profile['Codice Fiscale'] = fake.ssn() if locs[country] == 'it_IT' else 'N/A'
+        except Exception:
+            profile['Codice Fiscale'] = 'N/A'
+    if 'Partita IVA' in extra_fields:
+        try:
+            profile['Partita IVA'] = fake.vat_id() if hasattr(fake, 'vat_id') else 'N/A'
+        except Exception:
+            profile['Partita IVA'] = 'N/A'
+    return pd.DataFrame([profile])
+
+def get_next_iban(cc):
+    cc = cc.upper()
+    if 'iban_state' not in st.session_state:
+        st.session_state.iban_state = {}
+    if cc not in st.session_state.iban_state or st.session_state.iban_state[cc]['index'] >= len(st.session_state.iban_state[cc]['list']):
+        lst = PREDEFINED_IBANS.get(cc, ["N/A"])
+        random.shuffle(lst)
+        st.session_state.iban_state[cc] = {'list': lst, 'index': 0}
+    st.session_state.iban_state[cc]['index'] += 1
+    return st.session_state.iban_state[cc]['list'][st.session_state.iban_state[cc]['index'] - 1]
+
+# ----------------------------------- UI ------------------------------------
+
+st.title("🔀 Generatore di Profili Multi-Provider")
+st.markdown("Genera profili fittizi e scegli tra diversi servizi di email temporanee.")
+
+if 'final_df' not in st.session_state:
+    st.session_state.final_df = None
+if 'email_info' not in st.session_state:
+    st.session_state.email_info = None
+
+with st.sidebar:
+    st.header("⚙️ Opzioni Generali")
+    country = st.selectbox("Paese", ["Italia", "Francia", "Germania", "Lussemburgo"])
+    n = st.number_input("Numero di profili", 1, 25, 1)
+    fields = st.multiselect(
+        "Campi aggiuntivi",
+        ["Email", "Telefono", "Codice Fiscale", "Partita IVA"],
+        default=["Email"]
+    )
+    st.header("📧 Opzioni Email")
+    selected_provider = st.selectbox("Scegli il provider email", list(PROVIDERS.keys()))
+    if st.button("🚀 Genera Profili", type="primary"):
+        with st.spinner("Generazione in corso..."):
+            dfs = [generate_profile(country, fields, selected_provider) for _ in range(n)]
+        st.session_state.final_df = pd.concat([df for df in dfs if not df.empty], ignore_index=True)
+
+if st.session_state.final_df is not None:
+    st.success(f"✅ Generati {len(st.session_state.final_df)} profili.")
+    st.dataframe(st.session_state.final_df)
+    csv = st.session_state.final_df.to_csv(index=False, encoding='utf-8-sig').encode('utf-8-sig')
+    st.download_button("📥 Scarica CSV", csv, "profili.csv", "text/csv")
+
+    info = st.session_state.email_info
+    if ('Email' in st.session_state.final_df.columns and info and
+        "fallita" not in str(info.get("address", "")).lower()):
+        _, inbox_func = PROVIDERS[info['provider']]
+        inbox_func(info)

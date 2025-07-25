@@ -7,7 +7,7 @@ import streamlit as st
 from faker import Faker
 import time
 import hashlib
-from bs4 import BeautifulSoup # <-- NUOVA LIBRERIA PER LO SCRAPING
+from bs4 import BeautifulSoup
 
 # --- CONFIGURAZIONE PAGINA ---
 st.set_page_config(page_title="Generatore di Profili Multi-Provider", page_icon="🔀", layout="centered")
@@ -52,28 +52,24 @@ def inbox_guerrillamail(info):
 
 # --- Provider 2: YOPmail (via Web Scraping) ---
 def create_yopmail_account():
-    """Genera un indirizzo YOPmail (non serve creare un account reale)."""
     username = ''.join(random.choices(string.ascii_lowercase + string.digits, k=10))
     address = f"{username}@yopmail.com"
     return {"address": address, "provider": "YOPmail"}
 
 def inbox_yopmail(info):
-    """Mostra l'inbox di YOPmail facendo scraping della pagina web."""
     st.subheader(f"📬 Inbox per [{info['address']}]")
     if st.button("🔁 Controlla inbox (YOPmail)"):
         with st.spinner("Recupero messaggi da YOPmail.com..."):
             try:
                 username = info['address'].split('@')[0]
-                inbox_url = f"https://www.yopmail.com/en/inbox?login={username}"
                 
-                # Scarica la pagina dell'inbox
-                inbox_page = requests.get(inbox_url, headers=USER_AGENT_HEADER)
+                # FIX DEFINITIVO: Usiamo una richiesta POST come fa il sito reale
+                inbox_url = "https://yopmail.com/en/"
+                payload = {'login': username}
+                inbox_page = requests.post(inbox_url, data=payload, headers=USER_AGENT_HEADER)
                 inbox_page.raise_for_status()
                 
-                # Analizza l'HTML con BeautifulSoup
                 soup = BeautifulSoup(inbox_page.text, 'lxml')
-                
-                # Trova tutti i messaggi (sono in un div con classe 'm')
                 messages = soup.find_all('div', class_='m')
                 
                 if not messages: st.info("📭 Nessun messaggio trovato."); return
@@ -82,16 +78,13 @@ def inbox_yopmail(info):
                 for m in reversed(messages):
                     sender = m.find('span', class_='s_from').text
                     subject = m.find('span', class_='s_subject').text
-                    email_id = m.find('a')['href'].split('id=')[1] # Estrae l'ID dall'URL
+                    email_id = m.find('a')['href'].split('id=')[1]
                     
                     with st.expander(f"✉️ **Da:** {sender} | **Oggetto:** {subject}"):
                         with st.spinner("Caricamento corpo del messaggio..."):
-                            # Scarica la pagina del singolo messaggio
                             mail_page = requests.get(f"https://www.yopmail.com/en/mail?id={email_id}", headers=USER_AGENT_HEADER)
                             mail_soup = BeautifulSoup(mail_page.text, 'lxml')
-                            # Il corpo del messaggio è in un div con id 'mail'
                             email_body = mail_soup.find('div', id='mail')
-                            # Converti l'oggetto BeautifulSoup in una stringa HTML
                             st.components.v1.html(str(email_body), height=400, scrolling=True)
 
             except Exception as e: st.error(f"Errore scraping YOPmail: {e}")
@@ -125,16 +118,8 @@ def inbox_tempmail(info):
 # ==============================================================================
 #                      LOGICA PRINCIPALE E UI
 # ==============================================================================
-CREATE_FUNCTIONS = {
-    "Guerrilla Mail": create_guerrillamail_account,
-    "YOPmail": create_yopmail_account,
-    "Temp-Mail.org (con chiave API)": create_tempmail_account
-}
-INBOX_FUNCTIONS = {
-    "Guerrilla Mail": inbox_guerrillamail,
-    "YOPmail": inbox_yopmail,
-    "Temp-Mail.org": inbox_tempmail
-}
+CREATE_FUNCTIONS = {"Guerrilla Mail": create_guerrillamail_account, "YOPmail": create_yopmail_account, "Temp-Mail.org (con chiave API)": create_tempmail_account}
+INBOX_FUNCTIONS = {"Guerrilla Mail": inbox_guerrillamail, "YOPmail": inbox_yopmail, "Temp-Mail.org": inbox_tempmail}
 
 def generate_profile(country, extra_fields, provider):
     locs = {'Italia': 'it_IT', 'Francia': 'fr_FR', 'Germania': 'de_DE', 'Lussemburgo': 'fr_LU'}
@@ -193,8 +178,5 @@ if st.session_state.final_df is not None:
     info = st.session_state.email_info
     if 'Email' in st.session_state.final_df.columns and info and "fallita" not in info.get("address", "fallita"):
         clean_provider_name = info['provider']
-        # Correzione del mapping per Temp-Mail
-        if clean_provider_name == "Temp-Mail.org (con chiave API)":
-             clean_provider_name = "Temp-Mail.org"
         inbox_func = INBOX_FUNCTIONS[clean_provider_name]
         inbox_func(info)

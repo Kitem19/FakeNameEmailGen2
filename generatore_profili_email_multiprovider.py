@@ -217,7 +217,7 @@ def get_next_iban(cc):
     return st.session_state.iban_state[cc]['list'][st.session_state.iban_state[cc]['index'] - 1]
 
 def generate_profile(country, extra_fields, email_service, mailtm_domain=None):
-    locs = {'Italia': 'it_IT', 'Francia': 'fr_FR', 'Germania': 'de_DE', 'Lussemburgo': 'de_LU'}
+    locs = {'Italia': 'it_IT', 'Francia': 'fr_FR', 'Germania': 'de_DE', 'Lussemburgo': 'lu_LU'}
     codes = {'Italia': 'IT', 'Francia': 'FR', 'Germania': 'DE', 'Lussemburgo': 'LU'}
     locale, code = locs[country], codes[country]
     fake = Faker(locale)
